@@ -1,0 +1,13 @@
+{
+  "extends": "./node_modules/@vue/tsconfig/tsconfig.dom.json",
+  "include": ["env.d.ts", "vue_src/**/*", "vue_src/**/*.vue"],
+  "exclude": ["vue_src/**/__tests__/*"],
+  "compilerOptions": {
+    "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.app.tsbuildinfo",
+   "incremental": true,
+    "types": ["chrome"],
+    "paths": {
+      "@/*": ["./vue_src/*"]
+    }
+  }
+}

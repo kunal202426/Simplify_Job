@@ -1,0 +1,12 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+
+# Local editor / Claude config
+.claude/
+
+# OS
+Thumbs.db
+.DS_Store

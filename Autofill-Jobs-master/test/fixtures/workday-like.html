@@ -1,0 +1,73 @@
+<!doctype html>
+<html>
+<head><meta charset="utf-8" /><title>Workday-like fixture</title>
+<style>body{font-family:sans-serif;max-width:640px;margin:20px auto}#results{background:#111;color:#0f0;padding:12px;white-space:pre-wrap;font-family:monospace;font-size:12px}</style>
+</head>
+<body>
+  <h1>Workday-like fixture</h1>
+  <div data-automation-id="applyFlowPage">
+    <!-- Workday-style: obfuscated classes, label carried by data-automation-label -->
+    <div class="css-1x9zq2h">
+      <input class="css-abc123" data-automation-id="salaryField-1"
+             data-automation-label="What are your desired annual salary expectations?" type="text" />
+    </div>
+
+    <!-- Workday-style: text input with a separate label node (no for=) -->
+    <div class="css-9f2k">
+      <div id="wd-lbl-notice" class="css-label">Notice period (in weeks)</div>
+      <input class="css-def456" aria-labelledby="wd-lbl-notice" type="text" />
+    </div>
+
+    <!-- A custom (non-native) dropdown widget: a button, not a form control. The engine
+         must simply ignore it without throwing. -->
+    <button data-automation-id="countryDropdown" aria-haspopup="listbox">Select country</button>
+  </div>
+
+  <pre id="results">running…</pre>
+
+  <script>
+    (function () {
+      const _local = {}, _sync = {};
+      function resolve(s, k){ if(k==null) return {...s}; if(Array.isArray(k)){const o={};k.forEach(x=>{if(x in s)o[x]=s[x]});return o;} const o={}; if(k in s)o[k]=s[k]; return o; }
+      window.chrome = { storage: {
+        local:{ get:(k,cb)=>cb(resolve(_local,k)), set:(o,cb)=>{Object.assign(_local,o);cb&&cb();} },
+        sync: { get:(k,cb)=>cb(resolve(_sync,k)),  set:(o,cb)=>{Object.assign(_sync,o);cb&&cb();} } } };
+      window.__store = { local:_local, sync:_sync };
+    })();
+  </script>
+  <script src="../../src/public/contentScripts/utils.js"></script>
+  <script src="../../src/public/contentScripts/signature.js"></script>
+  <script src="../../src/public/contentScripts/learningStore.js"></script>
+  <script src="../../src/public/contentScripts/formatConvert.js"></script>
+  <script src="../../src/public/contentScripts/matcher.js"></script>
+  <script src="../../src/public/contentScripts/reviewPanel.js"></script>
+  <script src="../../src/public/contentScripts/engine.js"></script>
+  <script>
+    const log=[]; function out(m){log.push(m);document.getElementById("results").textContent=log.join("\n");}
+    const assert=(n,c)=>out((c?"PASS ":"FAIL ")+n);
+    (async function(){
+      const page = document.querySelector('[data-automation-id="applyFlowPage"]');
+      // signature reads the Workday data-automation-label
+      const salaryEl = document.querySelector('[data-automation-id="salaryField-1"]');
+      const salarySig = generateSignature(salaryEl);
+      assert("data-automation-label used as label", /salary expectations/i.test(salarySig.rawLabel));
+      const noticeEl = document.querySelector('[aria-labelledby="wd-lbl-notice"]');
+      assert("aria-labelledby resolved to 'Notice period...'", /notice period/i.test(generateSignature(noticeEl).rawLabel));
+
+      // engine runs without throwing despite the custom button widget present
+      let threw=false;
+      try { await runLearningEngine(page, "myworkdayjobs.com", {}); } catch(e){ threw=true; out("ERR "+e); }
+      assert("engine ran on Workday-like DOM without throwing", !threw);
+      assert("native fields left as needs-input (no data yet)", salaryEl.value==="" && noticeEl.value==="");
+
+      // learn a salary answer, then confirm exact recall fills the native input
+      salaryEl.value="120000"; salaryEl.dispatchEvent(new Event("change",{bubbles:true}));
+      await new Promise(r=>setTimeout(r,250));
+      salaryEl.value=""; delete page.__afjEngineRan;
+      await runLearningEngine(page, "myworkdayjobs.com", {});
+      assert("exact recall fills Workday native input", salaryEl.value==="120000");
+      out("DONE");
+    })().catch(e=>out("ERROR "+(e&&e.stack||e)));
+  </script>
+</body>
+</html>

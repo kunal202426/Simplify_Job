@@ -1,0 +1,248 @@
+@import url('https://fonts.googleapis.com/css2?family=Lexend:wght@100..900&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;0,700;1,300;1,400;1,500;1,600;1,700&display=swap');
+body {
+  overscroll-behavior: none;
+  box-sizing: border-box;
+  padding: 0;
+  margin:0;
+  border:0;
+}
+
+#app {
+  min-width: 400px;
+  
+  margin: 0;
+  border: 0;
+  padding: 2rem;
+  background-color: rgb(233, 227, 216);
+  display: flex;
+  flex-direction: column;
+  align-items: left;
+  gap: 1rem;
+  --c1 : rgb(45, 67, 51);
+  --c2 : rgb(225, 163, 163);
+  font-family: "Lexend";
+  font-weight: 100;
+}
+.aRight {
+  display: flex;
+  flex-direction: column;
+  flex-grow: 0;
+  flex-shrink: 0;
+  align-items: end;
+}
+.aSelfTop {
+  align-self: flex-start;
+}
+.gS {
+  gap:0.25rem;
+}
+.gM {
+  gap:0.5rem;
+}
+.mTs {
+  margin-top: 0.5rem;
+}
+.explanationBg{
+  width: 100%;
+  height: 100%;
+  top:0;
+  left:0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  position: fixed;
+  backdrop-filter: blur(15px);
+  background-color: rgba(240, 233, 220, 0.9);
+  gap: 1rem;
+}
+.explanation{
+  font-family: "Lexend";
+  font-weight: 300;
+  font-size: 1.5rem;
+  max-width: 70%;
+  text-align: center;
+}
+.inputFieldDiv {
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+  justify-content: space-between;
+}
+.gridFieldDivHolder {
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+  justify-content: space-between;
+}
+.gridFieldDiv{
+  display: flex; 
+  gap: 0.5rem;
+  width: 15rem;
+  flex-wrap: wrap;
+  flex: 0 0 auto;
+  background-color: transparent;
+  border-radius: 1rem;
+  border: 0.2rem solid rgba(0, 0, 0, 0.093);
+  outline: 0;
+  font-family: "Lexend";
+  padding:0.5rem;
+  padding-bottom: 1rem;
+  margin:0;
+  height:fit-content;
+  text-overflow: ellipsis;
+  max-width: 15rem;
+  color:var(--c1);
+  caret-shape: block; caret-color: var(--c1);
+}
+.gridDataItem{
+  flex: 0 0 auto;
+  background-color: var(--c1);
+  color: rgb(233, 233, 233);
+  font-size: 1rem;
+  width: fit-content;
+  padding: 0.25rem 0.6rem;
+  border-radius: 0.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+.gridDataItem svg{
+  flex-shrink: 0;
+}
+.gridDataItem h1{
+  font-size: 1rem;
+  font-family: "Lexend";
+  font-weight: 300;
+}
+.textAreaDiv {
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+  justify-content: space-between;
+}
+.textAreaDiv :nth-child(2) {
+  width: 18rem;
+  background-color: transparent;
+  border-radius: 1rem;
+  border: 0.2rem solid rgba(0, 0, 0, 0.093);
+  outline: 0;
+  font-family: "Lexend";
+  padding:0.5rem;
+  margin:0;
+  overflow-y: scroll;
+  text-wrap: wrap;
+  max-width: 20rem;
+  height: 5rem;
+  max-height: 15rem;
+  color:var(--c1);
+  caret-shape: block; caret-color: var(--c1);
+}
+.inputFieldDiv :nth-child(2) {
+  width: fit-content;
+  background-color: transparent;
+  border-radius: 1rem;
+  border: 0.2rem solid rgba(0, 0, 0, 0.093);
+  outline: 0;
+  font-family: "Lexend";
+  padding:0.5rem;
+  margin:0;
+  height:fit-content;
+  text-overflow: ellipsis;
+  max-width: 15rem;
+  color:var(--c1);
+  caret-shape: block; caret-color: var(--c1);
+}
+select.password {
+  color:transparent !important;
+  background-image: radial-gradient(var(--c1) 60%, transparent 0%);
+  background-size: 0.3rem 0.3rem;
+  background-position: 0.5rem 1rem;
+  background-clip: content-box;
+  background-repeat: repeat-x;
+}
+
+.inputFieldfileHolder :nth-child(2) {
+ border:none;
+ max-width: 13rem;
+ height:fit-content;
+ font-size: 1rem;
+ overflow-wrap: break-word;
+ text-overflow: ellipsis;
+}
+.inputFieldDiv :nth-child(2)::placeholder {
+  color: rgba(0, 0, 0, 0.2);
+}
+input[type='file'] {
+  color: rgba(0, 0, 0, 0);
+  
+}
+
+.subheading {
+  font-family: "Cormorant Garamond", serif;
+  margin-top: 4rem;
+  margin-bottom: 0.5rem;
+  font-size: 2.75rem;
+  font-weight: 600;
+}
+h1{
+  font-family: "Cormorant Garamond", serif;
+  font-weight: 600;
+  font-size: 3rem;
+  margin:0;
+}
+
+h2{
+  
+  margin:0;
+  font-weight: 300;
+}
+h3{
+  margin:0;
+  font-weight: 300;
+}
+.privacyToggle {
+  background-color: #c2b9a9;
+  border: 0.15rem solid rgba(0,0,0,0.1);
+  border-radius: 0.5rem;
+  width: fit-content;
+ 
+}
+
+.starBtn{
+  text-decoration: none;
+  display: flex;
+  align-items: center;
+  font-size: 0.8rem;
+  color: rgb(241, 235, 225);
+  text-shadow: 0.1rem 0.1rem 0.3rem rgba(0, 0, 0, 0.245);
+  background-color: rgb(194, 185, 169);
+  width: fit-content;
+  padding-right: 1rem;
+  border-radius: 0.5rem;
+  cursor: pointer;
+  border: 0.15rem solid rgba(0,0,0,0.1);
+}
+.starBtnL{
+  text-shadow: none;
+  text-decoration: none;
+  height: 100%;
+  color: rgb(10, 10, 10);
+  border-radius: 0.4rem;
+  padding: 0.4rem 0rem 0.4rem 0.4rem;
+  margin-right: 1rem;
+  background-color: rgb(219, 209, 192);
+  font-size: 1rem;
+  display: flex;
+  align-items: center;
+}
+.headerDiv{
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 1.5rem;
+  margin-top:1rem;
+}
+
