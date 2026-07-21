@@ -1,6 +1,6 @@
 {
   "name": "autofilljobs",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "A self-learning Chrome extension that fills out job applications and learns from every question you answer manually, entirely locally.",
   "repository": {
     "type": "git",

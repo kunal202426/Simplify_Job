@@ -1,214 +1,91 @@
 /*
-import {
-  keyDownEvent,
-  keyUpEvent,
-  mouseUpEvent,
-  changeEvent,
-  inputEvent,
-  sleep,
-  curDateStr,
-  scrollToTop,
-  base64ToArrayBuffer,
-  monthToNumber,
-  getTimeElapsed,
-  delays,
-  getStorageDataLocal,
-  getStorageDataSync,
-  setNativeValue,
-  fields
-} from "./utils";
-import { workDayAutofill } from './workday';
+  autofill.js — page-load entry point.
+
+  Watches the page for a job-application-shaped form and hands it to the learning engine.
+  There's no per-site field-name map anymore: Greenhouse, Lever, Dover, and any ATS this
+  extension has never seen before all go through the same generic, label-reading engine in
+  engine.js — proven across a wide range of real portals. Workday is the one exception: its
+  multi-stage wizard and bespoke widgets (skills picker, repeatable work-experience sections)
+  get a dedicated handler in workday.js, since the generic engine doesn't cover those widget
+  types yet.
 */
 
-let initTime;
-window.addEventListener("load", (_) => {
-  initTime = new Date().getTime();
-  awaitForm();
+let afjPageLoadedAt;
+
+window.addEventListener("load", () => {
+  afjPageLoadedAt = Date.now();
+  afjWatchForApplicationForm();
 });
-const applicationFormQuery = "#application-form, #application_form, #applicationform";
 
+function afjIsWorkdayTenant() {
+  return window.location.hostname.includes("workday");
+}
 
-function inputQuery(jobParam, form) {
-  let normalizedParam = jobParam.toLowerCase();
-  let inputElement = Array.from(form.querySelectorAll("input")).find(
-    (input) => {
-      const attributes = [
-        input.id?.toLowerCase().trim(),
-        input.name?.toLowerCase().trim(),
-        input.placeholder?.toLowerCase().trim(),
-        input.getAttribute("aria-label")?.toLowerCase().trim(),
-        input.getAttribute("aria-labelledby")?.toLowerCase().trim(),
-        input.getAttribute("aria-describedby")?.toLowerCase().trim(),
-        input.getAttribute("data-qa")?.toLowerCase().trim(),
-      ];
-
-      for (let i = 0; i < attributes.length; i++) {
-        if (
-          attributes[i] != undefined &&
-          attributes[i].includes(normalizedParam)
-        ) {
-          return true;
-        }
-      }
-      return false;
-    }
+/** The likely application-form container, preferring an explicit application-form id over a
+ * generic <form> or #mainContent — several ATSes render other, unrelated forms (search bars,
+ * newsletter signups) elsewhere on the same page. */
+function afjFindLikelyForm() {
+  return (
+    document.querySelector("#application-form, #application_form, #applicationform") ||
+    document.querySelector("form, #mainContent")
   );
-  return inputElement;
 }
 
-function formatCityStateCountry(data, param) {
-  let formattedStr = `${data[param] != undefined ? `${data[param]},` : ""} ${
-    data["Location (State/Region)"] != undefined
-      ? `${data["Location (State/Region)"]},`
-      : ""
-  }`;
-  if (formattedStr[formattedStr.length - 1] == ",")
-    formattedStr = formattedStr.slice(0, formattedStr.length - 1);
-  return formattedStr;
-}
-
-async function awaitForm() {
-  // The content script now runs on every https page (not just known job boards), so this
-  // observer fires on ordinary page churn everywhere — debounce its work to avoid scanning
-  // the DOM on every single mutation of a busy, unrelated page.
+/**
+ * Watches the page for something that looks like a job-application form. Debounced so this
+ * doesn't re-scan the DOM on every single mutation of a busy, unrelated page — the extension
+ * runs on every https page now, not a curated site list, so ordinary page churn (ads,
+ * trackers, lazily-loaded content) fires this observer constantly on sites that were never
+ * job boards at all.
+ */
+function afjWatchForApplicationForm() {
   let debounceTimer = null;
-  const observer = new MutationObserver((_, observer) => {
+  const observer = new MutationObserver(() => {
     clearTimeout(debounceTimer);
-    debounceTimer = setTimeout(() => checkForForm(observer), 300);
+    debounceTimer = setTimeout(() => afjCheckForApplicationForm(observer), 300);
   });
-  observer.observe(document.body, {
-    childList: true,
-    subtree: true,
-  });
-  if (window.location.hostname.includes("lever")) {
-    let form = document.querySelector("#application-form, #application_form");
-    if (form) autofill(form);
-  }
+  observer.observe(document.body, { childList: true, subtree: true });
+
+  // Some SPAs render their form before the observer's first mutation would otherwise fire —
+  // check once immediately too, rather than waiting on page churn that might never come.
+  afjCheckForApplicationForm(observer);
 }
 
-function checkForForm(observer) {
-  for (let jobForm in fields) {
-    if (!window.location.hostname.includes(jobForm)) continue;
-    //workday
-    if (jobForm == "workday") {
-      autofill(null);
-      observer.disconnect();
-      return;
-    }
-    let form = document.querySelector(applicationFormQuery);
-    if (form) {
-      observer.disconnect();
-      autofill(form);
-      return;
-    } else {
-      form = document.querySelector("form, #mainContent");
-      if (form) {
-        observer.disconnect();
-        autofill(form);
-        return;
-      }
-    }
-  }
-
-  // Unknown host — only proceed if this genuinely looks like a job application, since the
-  // extension is now injected on every https page rather than a curated list of job boards.
-  let genericForm =
-    document.querySelector(applicationFormQuery) ||
-    document.querySelector("form, #mainContent");
-  if (genericForm && afjLooksLikeJobApplicationPage(genericForm)) {
+function afjCheckForApplicationForm(observer) {
+  if (afjIsWorkdayTenant()) {
     observer.disconnect();
-    runGenericEngine(genericForm);
+    afjRunOnWorkday();
+    return;
   }
+
+  const form = afjFindLikelyForm();
+  if (!form) return;
+
+  // On a host we don't otherwise recognize, only proceed if this genuinely looks like a job
+  // application — the extension is injected on every https page, not a curated job-board
+  // list, so this content-based gate is what keeps it from firing on unrelated forms
+  // everywhere else on the web.
+  if (!afjLooksLikeJobApplicationPage(form)) return;
+
+  observer.disconnect();
+  afjRunFillPass(form);
 }
 
-// Runs the learning engine on hosts that have no per-site profile map (iCIMS, Taleo,
-// SuccessFactors, or any future matched host). Profile fields are matched generically by
-// the engine's matcher, so no hardcoded mapping is required.
-async function runGenericEngine(form) {
-  let res = await getStorageDataSync();
+async function afjLoadProfile() {
+  const res = await getStorageDataSync();
   res["Current Date"] = curDateStr();
+  return res;
+}
+
+async function afjRunOnWorkday() {
+  const res = await afjLoadProfile();
+  workDayAutofill(res);
+}
+
+async function afjRunFillPass(form) {
+  const res = await afjLoadProfile();
   await sleep(delays.initial);
   await runLearningEngine(form, window.location.hostname, res);
   scrollToTop();
-  console.log(`Autofill Jobs: Generic engine complete in ${getTimeElapsed(initTime)}s.`);
+  console.log(`Autofill Jobs: fill pass complete in ${getTimeElapsed(afjPageLoadedAt)}s.`);
 }
-
-async function autofill(form) {
-  console.log("Autofill Jobs: Starting autofill.");
-  let res = await getStorageDataSync();
-  res["Current Date"] = curDateStr();
-  await sleep(delays.initial);
-  for (let jobForm in fields) {
-    if (!window.location.hostname.includes(jobForm)) continue;
-    if (jobForm == "workday") {
-      workDayAutofill(res);
-      return;
-    }
-
-    for (let jobParam in fields[jobForm]) {
-      if (jobParam.toLowerCase() == "resume") {
-          let localData = await getStorageDataLocal();
-          if (!localData.Resume) continue;
-
-          let resumeDiv = {
-            greenhouse: 'input[id="resume"]',
-            lever: 'input[id="resume-upload-input"]',
-            dover:
-              'input[type="file"][accept=".pdf"], input[type="file"][accept="application/pdf"]',
-          };
-          let el = document.querySelector(resumeDiv[jobForm]);
-          if (!el) {
-            //old greenhouse forms
-            el = document.querySelector('input[type="file"]');
-          }
-          el.addEventListener("submit", function (event) {
-            event.preventDefault();
-          });
-          
-          const dt = new DataTransfer();
-          let arrBfr = base64ToArrayBuffer(localData.Resume);
-
-          dt.items.add(
-            new File([arrBfr], `${localData["Resume_name"]}`, {
-              type: "application/pdf",
-            })
-          );
-          el.files = dt.files;
-          el.dispatchEvent(changeEvent);
-          await sleep(delays.short);
-          
-        
-        continue;
-      }
-
-      let useLongDelay = false;
-      //gets param from user data
-      const param = fields[jobForm][jobParam];
-      let fillValue = res[param];
-      if (!fillValue) continue;
-      let inputElement = inputQuery(jobParam, form);
-      if (!inputElement) continue;
-
-      if (param === "Gender" || "Location (City)") useLongDelay = true;
-      if (param === "Location (City)")  fillValue = formatCityStateCountry(res, param);
-
-      setNativeValue(inputElement, fillValue);
-      //for the dropdown elements
-      let btn = inputElement.closest(".select__control--outside-label");
-      if (!btn) continue;
-
-      btn.dispatchEvent(mouseUpEvent);
-      await sleep(useLongDelay ? delays.long : delays.short);
-      btn.dispatchEvent(keyDownEvent);
-      await sleep(delays.short);
-    }
-    // Learning/fill engine runs on everything the profile pass left empty, and learns
-    // manual fills for next time.
-    await runLearningEngine(form, window.location.hostname, res);
-    scrollToTop();
-    console.log(`Autofill Jobs: Complete in ${getTimeElapsed(initTime)}s.`);
-    break; //found site
-  }
-  
-}
-

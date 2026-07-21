@@ -5,8 +5,10 @@
 </h1>
 <p>
   A Chrome extension that fills out job applications for you — and actually gets better the
-  more you use it. Built with <a href="https://vuejs.org/">Vue</a>, forked from
-  <a href="https://github.com/andrewmillercode/Autofill-Jobs">andrewmillercode/Autofill-Jobs</a>.
+  more you use it. Built with <a href="https://vuejs.org/">Vue</a>. Originally inspired by
+  <a href="https://github.com/andrewmillercode/Autofill-Jobs">andrewmillercode/Autofill-Jobs</a>,
+  the fill/learn engine, embedding fallback, and per-site handling here are an independent
+  rewrite.
 </p>
 </div>
 
@@ -122,7 +124,8 @@ Content scripts (loaded as plain classic scripts sharing globals, not ES modules
 | `embedding.js` + `background.js` | Client/host for the local MiniLM embedding model (semantic fallback matching) |
 | `reviewPanel.js` | The floating on-page status panel |
 | `engine.js` | The orchestrator — ties everything together, handles native fields, ARIA comboboxes, and pill/button-group widgets alike |
-| `workday.js` | Workday-specific stage-driven flow (older, more fragile — least covered by automated tests) |
+| `autofill.js` | Page-load entry point — watches for a job-application-shaped form and hands it to the engine. No per-site field-name map; every ATS goes through the same generic path |
+| `workday.js` | Workday's multi-stage wizard and its bespoke widgets (skills picker, repeatable work-experience sections) that the generic engine doesn't cover yet — least covered by automated tests, most likely to need live-tenant fixes |
 
 Popup UI is Vue 3 + Vite, under `src/vue_src/`.
 
@@ -141,6 +144,5 @@ ever reflects what's actually in `dist/`.
 
 ## License
 
-MIT — see [LICENSE](LICENSE). Original project © 2025 Andrew Miller
-([andrewmillercode/Autofill-Jobs](https://github.com/andrewmillercode/Autofill-Jobs)); this
-fork's additions are also MIT.
+MIT — see [LICENSE](LICENSE). Originally inspired by
+[andrewmillercode/Autofill-Jobs](https://github.com/andrewmillercode/Autofill-Jobs).

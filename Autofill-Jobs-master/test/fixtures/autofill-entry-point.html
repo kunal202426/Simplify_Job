@@ -1,0 +1,81 @@
+<!doctype html>
+<html>
+<head><meta charset="utf-8" /><title>autofill.js real entry point regression</title>
+<style>body{font-family:sans-serif;max-width:640px;margin:20px auto}#results{background:#111;color:#0f0;padding:12px;white-space:pre-wrap;font-family:monospace;font-size:12px}</style>
+</head>
+<body>
+  <h1>Exercises autofill.js's actual window-load activation path</h1>
+  <p>Every other fixture calls runLearningEngine directly, bypassing autofill.js entirely.
+  This one loads the full script chain in manifest order and fires a real 'load' event, so
+  the rewritten afjWatchForApplicationForm / afjCheckForApplicationForm / afjRunFillPass path
+  gets genuine end-to-end coverage — this is now the single entry point every non-Workday
+  site depends on, since the old per-site hardcoded loop was retired.</p>
+
+  <form id="application-form">
+    <label for="fn">First Name *</label>
+    <input id="fn" name="first_name" type="text" />
+
+    <label for="em">Email Address *</label>
+    <input id="em" name="email" type="text" />
+
+    <label for="resume">Resume</label>
+    <input id="resume" type="file" />
+  </form>
+
+  <pre id="results">running…</pre>
+
+  <script>
+    (function () {
+      const _local = {}, _sync = {};
+      function resolve(s, k){ if(k==null) return {...s}; if(Array.isArray(k)){const o={};k.forEach(x=>{if(x in s)o[x]=s[x]});return o;} const o={}; if(k in s)o[k]=s[k]; return o; }
+      window.chrome = { runtime: { id: "test-extension-id" }, storage: {
+        local:{ get:(k,cb)=>cb(resolve(_local,k)), set:(o,cb)=>{Object.assign(_local,o);cb&&cb();} },
+        sync: { get:(k,cb)=>cb(resolve(_sync,k)),  set:(o,cb)=>{Object.assign(_sync,o);cb&&cb();} } } };
+      _sync["First Name"] = "Ada";
+      _sync["Email"] = "ada@example.com";
+      window.__store = { local: _local, sync: _sync };
+    })();
+  </script>
+  <script src="../../src/public/contentScripts/utils.js"></script>
+  <script src="../../src/public/contentScripts/signature.js"></script>
+  <script src="../../src/public/contentScripts/learningStore.js"></script>
+  <script src="../../src/public/contentScripts/formatConvert.js"></script>
+  <script src="../../src/public/contentScripts/matcher.js"></script>
+  <script src="../../src/public/contentScripts/embedding.js"></script>
+  <script src="../../src/public/contentScripts/reviewPanel.js"></script>
+  <script src="../../src/public/contentScripts/engine.js"></script>
+  <script src="../../src/public/contentScripts/workday.js"></script>
+  <script src="../../src/public/contentScripts/autofill.js"></script>
+  <script>
+    const log=[]; function out(m){log.push(m);document.getElementById("results").textContent=log.join("\n");}
+    const assert=(n,c)=>out((c?"PASS ":"FAIL ")+n);
+
+    (async function () {
+      assert("no syntax/load errors across the full script chain", true);
+
+      // The page has already fired its real 'load' event by the time this script runs (it's
+      // the last one on the page) — dispatch a synthetic one to trigger the same listener
+      // autofill.js registers on real page loads, since jsdom-less browser fixtures load
+      // everything synchronously before 'load' semantics would normally apply here.
+      window.dispatchEvent(new Event("load"));
+
+      // afjWatchForApplicationForm's immediate check + the debounced MutationObserver path
+      // both funnel into afjRunFillPass — give the debounce (300ms) and the initial delay
+      // (1000ms) room to actually complete.
+      let waited = 0;
+      while (waited < 3000) {
+        await new Promise(r => setTimeout(r, 200));
+        waited += 200;
+        if (document.getElementById("fn").value) break;
+      }
+
+      assert("First Name filled through the real entry point (not a direct runLearningEngine call)",
+        document.getElementById("fn").value === "Ada");
+      assert("Email filled through the real entry point",
+        document.getElementById("em").value === "ada@example.com");
+
+      out("DONE");
+    })().catch(e => out("ERROR " + (e && e.stack || e)));
+  </script>
+</body>
+</html>
