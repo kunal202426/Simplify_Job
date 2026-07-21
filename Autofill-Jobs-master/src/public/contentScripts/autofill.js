@@ -29,6 +29,7 @@ window.addEventListener("load", async () => {
     return;
   }
   afjWatchForApplicationForm();
+  afjWatchForSpaNavigation();
 });
 
 function afjIsWorkdayTenant() {
@@ -45,6 +46,12 @@ function afjFindLikelyForm() {
   );
 }
 
+// Only one "am I watching for a form on this page" loop should ever run at a time — without
+// this guard, a route change re-arming the watcher while an earlier one is still active
+// (e.g. still debouncing) would stack up multiple independent MutationObservers all doing
+// the same job.
+let afjPageWatcherActive = false;
+
 /**
  * Watches the page for something that looks like a job-application form. Debounced so this
  * doesn't re-scan the DOM on every single mutation of a busy, unrelated page — the extension
@@ -53,6 +60,9 @@ function afjFindLikelyForm() {
  * job boards at all.
  */
 function afjWatchForApplicationForm() {
+  if (afjPageWatcherActive) return;
+  afjPageWatcherActive = true;
+
   let debounceTimer = null;
   const observer = new MutationObserver(() => {
     clearTimeout(debounceTimer);
@@ -68,6 +78,7 @@ function afjWatchForApplicationForm() {
 function afjCheckForApplicationForm(observer) {
   if (afjIsWorkdayTenant()) {
     observer.disconnect();
+    afjPageWatcherActive = false;
     afjRunOnWorkday();
     return;
   }
@@ -82,6 +93,7 @@ function afjCheckForApplicationForm(observer) {
   if (!afjLooksLikeJobApplicationPage(form)) return;
 
   observer.disconnect();
+  afjPageWatcherActive = false;
   afjRunFillPass(form);
 }
 
@@ -102,4 +114,52 @@ async function afjRunFillPass(form) {
   await runLearningEngine(form, window.location.hostname, res);
   scrollToTop();
   console.log(`Autofill Jobs: fill pass complete in ${getTimeElapsed(afjPageLoadedAt)}s.`);
+}
+
+/**
+ * Single-page apps change the URL via the History API without ever reloading the page, so
+ * "page load" fires exactly once no matter how many different routes/screens the user visits
+ * afterward. Without watching for that, an engine that correctly activated once on a route
+ * that genuinely looked like a job application (or was manually filled once) just keeps
+ * running — and its review panel keeps showing — on every later route the user navigates to
+ * client-side, since nothing else would ever notice the page changed underneath it.
+ */
+function afjWatchForSpaNavigation() {
+  let lastPath = location.pathname + location.search;
+  const handleChange = () => {
+    const path = location.pathname + location.search;
+    if (path === lastPath) return;
+    lastPath = path;
+    afjReevaluateForCurrentPath();
+  };
+
+  const origPushState = history.pushState;
+  const origReplaceState = history.replaceState;
+  history.pushState = function (...args) {
+    origPushState.apply(this, args);
+    handleChange();
+  };
+  history.replaceState = function (...args) {
+    origReplaceState.apply(this, args);
+    handleChange();
+  };
+  window.addEventListener("popstate", handleChange);
+  window.addEventListener("hashchange", handleChange);
+}
+
+async function afjReevaluateForCurrentPath() {
+  if (!(await afjIsEngineEnabled())) return;
+  if (afjIsWorkdayTenant()) return; // its own stage-driven flow manages its own lifecycle
+
+  // Give the SPA a moment to actually render the new route's content before judging it —
+  // right after a pushState the old route's DOM is often still what's on screen.
+  await sleep(delays.short);
+
+  if (!afjLooksLikeJobApplicationPage(document.body)) {
+    if (typeof afjTeardownEngine === "function") afjTeardownEngine();
+    return;
+  }
+  // The new route (still or newly) looks like a job application — make sure something is
+  // watching for its form, same as a fresh page load would.
+  afjWatchForApplicationForm();
 }

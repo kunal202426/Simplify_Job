@@ -465,7 +465,9 @@ const AFJ_NON_APPLICATION_PATH_HINTS = [
  * which is the failure mode actually worth avoiding.
  */
 function afjLooksLikeJobApplicationPage(scope) {
-  const fileInputs = Array.from(scope.querySelectorAll('input[type="file"]'));
+  const fileInputs = Array.from(scope.querySelectorAll('input[type="file"]')).filter(
+    (el) => el.getClientRects().length > 0
+  );
   const hasResumeUpload = fileInputs.some((el) => {
     const signal = generateSignature(el).normalized + " " + afjFileInputSignal(el);
     return afjLooksLikeResumeLabel(signal);
@@ -480,7 +482,14 @@ function afjLooksLikeJobApplicationPage(scope) {
   // (e.g. a login box embedded near a careers nav link) — the URL signal is a reason to be
   // permissive about WORDING on an actual application form, not a license to fire on any
   // form anywhere on a job-adjacent site regardless of size.
-  const fields = Array.from(scope.querySelectorAll("input, select, textarea"));
+  //
+  // Visible fields only: some SPAs keep every tab/route's content mounted simultaneously and
+  // just CSS-hide the inactive ones (to preserve scroll/filter state across tab switches),
+  // rather than unmounting it — scanning the raw DOM would otherwise count fields from tabs
+  // the user isn't even looking at right now toward "this looks like a big form."
+  const fields = Array.from(scope.querySelectorAll("input, select, textarea")).filter(
+    (el) => el.getClientRects().length > 0
+  );
   if (fields.length < 3) return false;
   if (fields.length >= 8) return true; // a large form is unlikely to be a newsletter/contact form
 
@@ -848,6 +857,34 @@ async function afjRunAllPasses(scope, res) {
   afjRunEmbeddingFallback(needsA.concat(needsB), bank);
 }
 
+// The one currently-active watch session (observer + interval + the scope they're bound
+// to), if any. Content scripts have no idea when a single-page app navigates to a
+// completely different route — there's no page reload to reset anything — so without this,
+// an engine that activated once on a page that genuinely qualified stays running forever,
+// including on every later route the user navigates to client-side. Tracked as a single
+// slot (not a list) since only one page/scope is ever meaningfully "the current page" at a
+// time in a single tab.
+let AFJ_ACTIVE_SESSION = null;
+
+/**
+ * Stops watching, forgets the current session, and removes the review panel — called when
+ * an SPA route change means the page the engine was watching isn't "the current page"
+ * anymore, and the new one doesn't look like a job application either. Safe to call even
+ * when nothing is active.
+ */
+function afjTeardownEngine() {
+  if (AFJ_ACTIVE_SESSION) {
+    const { scope, observer, intervalId } = AFJ_ACTIVE_SESSION;
+    observer.disconnect();
+    clearInterval(intervalId);
+    if (scope) scope.__afjObserverBound = false;
+    AFJ_ACTIVE_SESSION = null;
+  }
+  const host = document.getElementById("afj-review-host");
+  if (host) host.remove();
+  if (typeof AFJ_PANEL !== "undefined") AFJ_PANEL.reset();
+}
+
 async function runLearningEngine(form, host, res) {
   const scope = form || document.querySelector("form") || document.body;
 
@@ -886,6 +923,8 @@ async function runLearningEngine(form, host, res) {
     }
     afjRunAllPasses(scope, res);
   }, 3000);
+
+  AFJ_ACTIVE_SESSION = { scope, observer, intervalId };
 }
 
 if (typeof module !== "undefined" && module.exports) {

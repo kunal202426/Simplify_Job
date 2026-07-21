@@ -1,0 +1,119 @@
+<!doctype html>
+<html>
+<head><meta charset="utf-8" /><title>SPA navigation teardown regression</title>
+<style>
+  body{font-family:sans-serif;max-width:640px;margin:20px auto}
+  #results{background:#111;color:#0f0;padding:12px;white-space:pre-wrap;font-family:monospace;font-size:12px}
+  .hidden-pane{display:none}
+</style>
+</head>
+<body>
+  <h1>Real bug found live: the panel stuck around on every route of a React SPA</h1>
+  <p>Two compounding causes, both exercised here: (1) client-side route changes (pushState)
+  never fire a real page load, so nothing re-evaluates whether the CURRENT route still
+  qualifies; (2) some SPAs keep every tab's content mounted at once, just CSS-hidden, so a
+  naive field count picks up fields from tabs the user isn't even looking at.</p>
+
+  <!-- Simulates JobHuntPro's WorkspaceShell: one always-mounted pane full of fields (hidden
+       via CSS, never removed from the DOM), and a route-specific area that starts as a real,
+       qualifying application form. -->
+  <div id="hidden-other-tab" class="hidden-pane">
+    <input name="a" type="text" /><input name="b" type="text" /><input name="c" type="text" />
+    <input name="d" type="text" /><input name="e" type="text" /><input name="f" type="text" />
+  </div>
+
+  <div id="route-content">
+    <form id="application-form">
+      <label for="fn">First Name *</label>
+      <input id="fn" name="first_name" type="text" />
+      <label for="em">Email Address *</label>
+      <input id="em" name="email" type="text" />
+      <label for="resume">Resume</label>
+      <input id="resume" type="file" />
+    </form>
+  </div>
+
+  <pre id="results">running…</pre>
+
+  <script>
+    (function () {
+      const _local = {}, _sync = {};
+      function resolve(s, k){ if(k==null) return {...s}; if(Array.isArray(k)){const o={};k.forEach(x=>{if(x in s)o[x]=s[x]});return o;} const o={}; if(k in s)o[k]=s[k]; return o; }
+      window.chrome = { runtime: { id: "test-extension-id" }, storage: {
+        local:{ get:(k,cb)=>cb(resolve(_local,k)), set:(o,cb)=>{Object.assign(_local,o);cb&&cb();} },
+        sync: { get:(k,cb)=>cb(resolve(_sync,k)),  set:(o,cb)=>{Object.assign(_sync,o);cb&&cb();} } } };
+      _sync["First Name"] = "Ada";
+      _sync["Email"] = "ada@example.com";
+      window.__store = { local: _local, sync: _sync };
+    })();
+  </script>
+  <script src="../../src/public/contentScripts/utils.js"></script>
+  <script src="../../src/public/contentScripts/signature.js"></script>
+  <script src="../../src/public/contentScripts/learningStore.js"></script>
+  <script src="../../src/public/contentScripts/formatConvert.js"></script>
+  <script src="../../src/public/contentScripts/matcher.js"></script>
+  <script src="../../src/public/contentScripts/embedding.js"></script>
+  <script src="../../src/public/contentScripts/reviewPanel.js"></script>
+  <script src="../../src/public/contentScripts/engine.js"></script>
+  <script src="../../src/public/contentScripts/workday.js"></script>
+  <script src="../../src/public/contentScripts/autofill.js"></script>
+  <script>
+    const log=[]; function out(m){log.push(m);document.getElementById("results").textContent=log.join("\n");}
+    const assert=(n,c)=>out((c?"PASS ":"FAIL ")+n);
+    const panelExists = () => !!document.getElementById("afj-review-host");
+
+    (async function () {
+      window.dispatchEvent(new Event("load"));
+
+      // Phase 1: real application form present -> engine activates, panel appears, fields fill.
+      let waited = 0;
+      while (waited < 3000) {
+        await new Promise(r => setTimeout(r, 200));
+        waited += 200;
+        if (document.getElementById("fn").value) break;
+      }
+      assert("phase 1: form filled on the qualifying route", document.getElementById("fn").value === "Ada");
+      assert("phase 1: review panel is showing", panelExists());
+
+      // Phase 2: client-side "navigate away" — swap route-content for something that looks
+      // nothing like a job application (mirrors an SPA's router replacing the visible pane).
+      // The hidden hidden-other-tab pane, if it counted toward the field tally, would still
+      // push this well past the 8-field fast-pass on its own — proving it does NOT count.
+      document.getElementById("route-content").innerHTML =
+        '<h2>Dashboard</h2><p>Welcome back.</p><button>Refresh</button>';
+      history.pushState(null, "", location.pathname + "?route=dashboard");
+
+      // Give the observer + navigation handler room to actually tear down.
+      waited = 0;
+      while (waited < 3000) {
+        await new Promise(r => setTimeout(r, 200));
+        waited += 200;
+        if (!panelExists()) break;
+      }
+      assert("phase 2: review panel was torn down after navigating to a non-qualifying route", !panelExists());
+
+      // Phase 3: navigate again to a route with a genuine new qualifying form -> engine
+      // reactivates fresh rather than staying dead forever.
+      document.getElementById("route-content").innerHTML =
+        '<form id="application-form-2">' +
+        '<label for="fn2">First Name *</label><input id="fn2" name="first_name" type="text" />' +
+        '<label for="em2">Email Address *</label><input id="em2" name="email" type="text" />' +
+        '<label for="resume2">Resume</label><input id="resume2" type="file" />' +
+        '</form>';
+      history.pushState(null, "", location.pathname + "?route=apply");
+
+      waited = 0;
+      while (waited < 3000) {
+        await new Promise(r => setTimeout(r, 200));
+        waited += 200;
+        if (document.getElementById("fn2") && document.getElementById("fn2").value) break;
+      }
+      assert("phase 3: engine reactivated on a later genuinely-qualifying route",
+        document.getElementById("fn2") && document.getElementById("fn2").value === "Ada");
+      assert("phase 3: review panel is showing again", panelExists());
+
+      out("DONE");
+    })().catch(e => out("ERROR " + (e && e.stack || e)));
+  </script>
+</body>
+</html>
