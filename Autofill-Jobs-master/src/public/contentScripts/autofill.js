@@ -12,8 +12,22 @@
 
 let afjPageLoadedAt;
 
-window.addEventListener("load", () => {
+// Master on/off switch, toggled in the popup. Storing under sync (not local) so the choice
+// follows the user across machines like the rest of their profile. Undefined (never touched
+// the toggle) means enabled — the extension should work out of the box, not require an
+// opt-in click first.
+const AFJ_ENABLED_KEY = "afjEngineEnabled";
+async function afjIsEngineEnabled() {
+  const data = await getStorageDataSync(AFJ_ENABLED_KEY);
+  return data[AFJ_ENABLED_KEY] !== false;
+}
+
+window.addEventListener("load", async () => {
   afjPageLoadedAt = Date.now();
+  if (!(await afjIsEngineEnabled())) {
+    console.log("Autofill Jobs: turned off in the popup — not scanning this page.");
+    return;
+  }
   afjWatchForApplicationForm();
 });
 

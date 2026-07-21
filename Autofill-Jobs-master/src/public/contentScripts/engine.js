@@ -433,6 +433,20 @@ const AFJ_PROBE_RES = (function () {
 
 const AFJ_JOB_URL_SIGNALS = ["apply", "career", "job", "candidate", "recruit", "vacanc", "position"];
 
+// Path fragments that mark a page as some app's own account/settings/dashboard area rather
+// than a job application — real-world collision found live: a job-hunting SaaS's own
+// /settings page has a large form (name/phone/LinkedIn/portfolio, easily 8+ fields) AND its
+// hostname literally contains "job", so both the field-count and URL fast-passes below would
+// otherwise fire on the tool's own settings page. Any app whose own name/domain happens to
+// contain a word like "job", "career", or "recruit" is structurally indistinguishable from a
+// real ATS by those two signals alone, so a recognizable non-application path is checked
+// first and — short of an actual resume upload, which stays trustworthy anywhere — blocks
+// both of them.
+const AFJ_NON_APPLICATION_PATH_HINTS = [
+  "/settings", "/account", "/dashboard", "/profile", "/billing",
+  "/login", "/signin", "/sign-in", "/signup", "/sign-up", "/checkout",
+];
+
 /**
  * Content-based gate for running the generic engine on a host we have no prior knowledge
  * of. Runs on every https page (see manifest), so this decides "is this actually a job
@@ -457,6 +471,9 @@ function afjLooksLikeJobApplicationPage(scope) {
     return afjLooksLikeResumeLabel(signal);
   });
   if (hasResumeUpload) return true;
+
+  const path = (location.pathname || "").toLowerCase();
+  if (AFJ_NON_APPLICATION_PATH_HINTS.some((p) => path.includes(p))) return false;
 
   // Field count first, before the URL check: a tiny form (login, newsletter signup) should
   // never fire just because it happens to sit on a page whose title/URL mentions "careers"

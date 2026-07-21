@@ -28,6 +28,34 @@
     <label for="lp">Password</label><input id="lp" name="password" type="password" />
   </form>
 
+  <!-- Real-world collision case: a job-hunting SaaS's own /settings page — large form,
+       genuine name/phone/LinkedIn/portfolio fields, hostname containing "job". Structurally
+       indistinguishable from a real application by field shape alone. -->
+  <form id="saas-settings-form">
+    <label for="sfn">Full name</label><input id="sfn" name="full_name" type="text" />
+    <label for="sph">Phone</label><input id="sph" name="phone" type="text" />
+    <label for="spf">Portfolio URL</label><input id="spf" name="portfolio_url" type="text" />
+    <label for="sli">LinkedIn URL</label><input id="sli" name="linkedin_url" type="text" />
+    <label for="scr">Current role</label><input id="scr" name="current_role" type="text" />
+    <label for="scc">Current company</label><input id="scc" name="current_company" type="text" />
+    <label for="sgr">Grad date</label><input id="sgr" name="graduation" type="text" />
+    <label for="str">Target role</label><input id="str" name="target_role" type="text" />
+    <label for="scl">College</label><input id="scl" name="college" type="text" />
+  </form>
+
+  <!-- Same shape, on an ordinary path -->
+  <form id="saas-normal-form">
+    <label for="nfn">Full name</label><input id="nfn" name="full_name" type="text" />
+    <label for="nph">Phone</label><input id="nph" name="phone" type="text" />
+    <label for="npf">Portfolio URL</label><input id="npf" name="portfolio_url" type="text" />
+    <label for="nli">LinkedIn URL</label><input id="nli" name="linkedin_url" type="text" />
+    <label for="ncr">Current role</label><input id="ncr" name="current_role" type="text" />
+    <label for="ncc">Current company</label><input id="ncc" name="current_company" type="text" />
+    <label for="ngr">Grad date</label><input id="ngr" name="graduation" type="text" />
+    <label for="ntr">Target role</label><input id="ntr" name="target_role" type="text" />
+    <label for="ncl">College</label><input id="ncl" name="college" type="text" />
+  </form>
+
   <pre id="results">running…</pre>
 
   <script src="../../src/public/contentScripts/utils.js"></script>
@@ -72,6 +100,24 @@
     assert("2-field login form is rejected even on a job-flavored title", afjLooksLikeJobApplicationPage(loginForm) === false);
 
     document.title = NEUTRAL_TITLE;
+
+    // Case 5: real-world collision — a large, genuinely identity-shaped form (would clear
+    // both the field-count AND identity-hit fallbacks on its own) sitting on a /settings
+    // path must be rejected anyway, since that path is a strong signal this is some app's
+    // own account page, not an ATS — unless it also has a resume upload.
+    const saasSettingsForm = document.getElementById('saas-settings-form');
+    const originalPath = location.pathname;
+    history.pushState(null, '', '/settings');
+    assert("large identity-shaped form on a /settings path is rejected (the real collision found live)",
+      afjLooksLikeJobApplicationPage(saasSettingsForm) === false);
+    history.pushState(null, '', originalPath);
+
+    // Case 6: the exact same form shape, off that path, is accepted as before — the fix is
+    // path-specific, not a general regression in detecting large identity-shaped forms.
+    const saasNormalForm = document.getElementById('saas-normal-form');
+    assert("the identical form shape off a /settings-like path is still accepted",
+      afjLooksLikeJobApplicationPage(saasNormalForm) === true);
+
     out("DONE");
   </script>
 </body>

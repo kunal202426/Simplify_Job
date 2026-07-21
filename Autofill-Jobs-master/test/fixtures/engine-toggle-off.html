@@ -1,0 +1,72 @@
+<!doctype html>
+<html>
+<head><meta charset="utf-8" /><title>Master on/off toggle regression</title>
+<style>body{font-family:sans-serif;max-width:640px;margin:20px auto}#results{background:#111;color:#0f0;padding:12px;white-space:pre-wrap;font-family:monospace;font-size:12px}</style>
+</head>
+<body>
+  <h1>afjEngineEnabled = false must stop the engine from ever engaging, on any page</h1>
+  <p>The real trigger for this feature: the engine was firing on the extension's own
+  distribution site (a job-hunting SaaS's own /settings page) because that page happened to
+  look job-application-shaped by the content gate's heuristics. A path-based fix closes that
+  specific case, but the user also asked for a manual override — this verifies the popup's
+  toggle actually gates the engine's entry point, not just a cosmetic setting.</p>
+
+  <form id="application-form">
+    <label for="fn">First Name *</label>
+    <input id="fn" name="first_name" type="text" />
+    <label for="em">Email Address *</label>
+    <input id="em" name="email" type="text" />
+    <label for="resume">Resume</label>
+    <input id="resume" type="file" />
+  </form>
+
+  <pre id="results">running…</pre>
+
+  <script>
+    (function () {
+      const _local = {}, _sync = {};
+      function resolve(s, k){ if(k==null) return {...s}; if(Array.isArray(k)){const o={};k.forEach(x=>{if(x in s)o[x]=s[x]});return o;} const o={}; if(k in s)o[k]=s[k]; return o; }
+      window.chrome = { runtime: { id: "test-extension-id" }, storage: {
+        local:{ get:(k,cb)=>cb(resolve(_local,k)), set:(o,cb)=>{Object.assign(_local,o);cb&&cb();} },
+        sync: { get:(k,cb)=>cb(resolve(_sync,k)),  set:(o,cb)=>{Object.assign(_sync,o);cb&&cb();} } } };
+      _sync["First Name"] = "Ada";
+      _sync["Email"] = "ada@example.com";
+      // The toggle, turned OFF before the extension's scripts ever load — mirrors a real
+      // user who flipped it off in the popup on a previous page and is now navigating.
+      _sync["afjEngineEnabled"] = false;
+      window.__store = { local: _local, sync: _sync };
+    })();
+  </script>
+  <script src="../../src/public/contentScripts/utils.js"></script>
+  <script src="../../src/public/contentScripts/signature.js"></script>
+  <script src="../../src/public/contentScripts/learningStore.js"></script>
+  <script src="../../src/public/contentScripts/formatConvert.js"></script>
+  <script src="../../src/public/contentScripts/matcher.js"></script>
+  <script src="../../src/public/contentScripts/embedding.js"></script>
+  <script src="../../src/public/contentScripts/reviewPanel.js"></script>
+  <script src="../../src/public/contentScripts/engine.js"></script>
+  <script src="../../src/public/contentScripts/workday.js"></script>
+  <script src="../../src/public/contentScripts/autofill.js"></script>
+  <script>
+    const log=[]; function out(m){log.push(m);document.getElementById("results").textContent=log.join("\n");}
+    const assert=(n,c)=>out((c?"PASS ":"FAIL ")+n);
+
+    (async function () {
+      window.dispatchEvent(new Event("load"));
+
+      // Give it the same window a real fill would need, so a false PASS here can't be
+      // explained by "it just hadn't gotten to it yet."
+      await new Promise(r => setTimeout(r, 2000));
+
+      assert("First Name stayed empty — engine never engaged while toggled off",
+        document.getElementById("fn").value === "");
+      assert("Email stayed empty — engine never engaged while toggled off",
+        document.getElementById("em").value === "");
+      assert("no review panel was ever mounted (engine didn't even scan the page)",
+        !document.getElementById("afj-review-host"));
+
+      out("DONE");
+    })().catch(e => out("ERROR " + (e && e.stack || e)));
+  </script>
+</body>
+</html>

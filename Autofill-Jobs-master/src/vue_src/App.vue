@@ -4,6 +4,7 @@ import InputField from '@/components/InputField.vue';
 import GridDataField from '@/components/GridDataField.vue';
 import GithubStars from '@/components/GithubStars.vue';
 import PrivacyToggle from '@/components/PrivacyToggle.vue';
+import EngineToggle from '@/components/EngineToggle.vue';
 import Explanation from '@/components/Explanation.vue';
 import EnterSkill from '@/components/EnterSkill.vue';
 import EnterWorkExperience from '@/components/EnterWorkExperience.vue';
@@ -22,7 +23,8 @@ import AnswerBank from '@/components/AnswerBank.vue';
     <PrivacyToggle/>
     </div>
   </div>
-  
+  <EngineToggle/>
+
   <InputField label="First Name" placeHolder="John" />
   <InputField label="Last Name" placeHolder="Pork" />
   <InputField label="Full Name" placeHolder="John Pork Sr." />
