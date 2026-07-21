@@ -6,6 +6,12 @@ dist/
 
 # Local editor / Claude config
 .claude/
+.vscode/
+.idea/
+
+# Secrets
+.env
+.env.local
 
 # OS
 Thumbs.db

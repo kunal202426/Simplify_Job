@@ -1,5 +1,5 @@
 <template>
-    <a style="text-decoration: none; color:black;"href="https://github.com/andrewmillercode/Autofill-Jobs" target="_blank">
+    <a style="text-decoration: none; color:black;"href="https://github.com/kunal202426/Simplify_Job" target="_blank">
     <div class="starBtn">
         <div class="starBtnL">
             <h3>Star</h3>
@@ -25,7 +25,7 @@ export default {
         const inputValue = ref('');
 
         const loadData = () => {
-            fetch("https://api.github.com/repos/andrewmillercode/Autofill-Jobs", {
+            fetch("https://api.github.com/repos/kunal202426/Simplify_Job", {
                 headers: {
                     "Content-Type": "application/json",
                 },

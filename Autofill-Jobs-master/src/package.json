@@ -1,6 +1,12 @@
 {
   "name": "autofilljobs",
-  "version": "0.0.0",
+  "version": "0.1.0",
+  "description": "A self-learning Chrome extension that fills out job applications and learns from every question you answer manually, entirely locally.",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/kunal202426/Simplify_Job.git"
+  },
+  "license": "MIT",
   "private": true,
   "type": "module",
   "scripts": {
@@ -12,6 +18,7 @@
     "type-check": "vue-tsc --build"
   },
   "dependencies": {
+    "@xenova/transformers": "^2.17.2",
     "vue": "^3.5.13",
     "vue-router": "^4.5.0",
     "watch": "^1.0.2"
