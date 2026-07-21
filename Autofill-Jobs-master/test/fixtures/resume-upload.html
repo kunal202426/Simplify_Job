@@ -1,0 +1,64 @@
+<!doctype html>
+<html>
+<head><meta charset="utf-8" /><title>Generic resume upload regression</title>
+<style>body{font-family:sans-serif;max-width:640px;margin:20px auto}#results{background:#111;color:#0f0;padding:12px;white-space:pre-wrap;font-family:monospace;font-size:12px}</style>
+</head>
+<body>
+  <h1>Oracle-style multi file-input (Resume / Cover Letter / Misc)</h1>
+
+  <label for="attachment-upload-2">Upload Resume</label>
+  <input type="file" id="attachment-upload-2" name="attachment-upload" accept=".pdf,.doc,.docx">
+
+  <label for="attachment-upload-3">Upload Cover Letter</label>
+  <input type="file" id="attachment-upload-3" name="attachment-upload" accept=".pdf,.doc,.docx">
+
+  <label for="attachment-upload-4">Upload Attachment</label>
+  <input type="file" id="attachment-upload-4" name="attachment-upload" accept=".pdf,.doc,.docx">
+
+  <pre id="results">running…</pre>
+
+  <script>
+    (function () {
+      const _local = {}, _sync = {};
+      function resolve(s, k){ if(k==null) return {...s}; if(Array.isArray(k)){const o={};k.forEach(x=>{if(x in s)o[x]=s[x]});return o;} const o={}; if(k in s)o[k]=s[k]; return o; }
+      window.chrome = { runtime: { id: "test-extension-id" }, storage: {
+        local:{ get:(k,cb)=>cb(resolve(_local,k)), set:(o,cb)=>{Object.assign(_local,o);cb&&cb();} },
+        sync: { get:(k,cb)=>cb(resolve(_sync,k)),  set:(o,cb)=>{Object.assign(_sync,o);cb&&cb();} } } };
+      // Seed a stored resume: a small valid base64 blob + filename, as InputField.vue writes.
+      _local["Resume"] = btoa("dummy pdf bytes");
+      _local["Resume_name"] = "sample_resume.pdf";
+      window.__store = { local: _local, sync: _sync };
+    })();
+  </script>
+  <script src="../../src/public/contentScripts/utils.js"></script>
+  <script src="../../src/public/contentScripts/signature.js"></script>
+  <script src="../../src/public/contentScripts/learningStore.js"></script>
+  <script src="../../src/public/contentScripts/formatConvert.js"></script>
+  <script src="../../src/public/contentScripts/matcher.js"></script>
+  <script src="../../src/public/contentScripts/reviewPanel.js"></script>
+  <script src="../../src/public/contentScripts/engine.js"></script>
+  <script>
+    const log=[]; function out(m){log.push(m);document.getElementById("results").textContent=log.join("\n");}
+    const assert=(n,c)=>out((c?"PASS ":"FAIL ")+n);
+    (async function(){
+      await afjUploadResume(document.body);
+
+      const resumeInput = document.getElementById('attachment-upload-2');
+      const coverInput = document.getElementById('attachment-upload-3');
+      const miscInput = document.getElementById('attachment-upload-4');
+
+      assert("Resume file went into the 'Upload Resume' input", resumeInput.files.length === 1 && resumeInput.files[0].name === 'sample_resume.pdf');
+      assert("Cover Letter input untouched", coverInput.files.length === 0);
+      assert("Misc Attachment input untouched", miscInput.files.length === 0);
+
+      // Re-run: should be a no-op now (file already assigned), not re-fire/duplicate.
+      let changeCount = 0;
+      resumeInput.addEventListener('change', () => changeCount++);
+      await afjUploadResume(document.body);
+      assert("Second call does not re-upload (already has a file)", changeCount === 0);
+
+      out("DONE");
+    })().catch(e=>out("ERROR "+(e&&e.stack||e)));
+  </script>
+</body>
+</html>

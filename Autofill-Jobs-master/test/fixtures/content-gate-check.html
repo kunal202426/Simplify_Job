@@ -1,0 +1,78 @@
+<!doctype html>
+<html>
+<head><meta charset="utf-8" /><title>Gate check fixture</title>
+<style>body{font-family:sans-serif;max-width:640px;margin:20px auto}#results{background:#111;color:#0f0;padding:12px;white-space:pre-wrap;font-family:monospace;font-size:12px}</style>
+</head>
+<body>
+  <h1>Content-gate check (does NOT reflect the real page URL — see script comments)</h1>
+
+  <!-- Positive case: identity-shaped fields, resembling a job application -->
+  <form id="job-form">
+    <label for="fn">First Name</label><input id="fn" name="firstName" type="text" />
+    <label for="ln">Last Name</label><input id="ln" name="lastName" type="text" />
+    <label for="em">Email</label><input id="em" name="email" type="text" />
+    <label for="ph">Phone</label><input id="ph" name="phone" type="text" />
+  </form>
+
+  <!-- Negative case: a small, generic contact form (no resume, few fields) -->
+  <form id="contact-form">
+    <label for="cn">Name</label><input id="cn" name="name" type="text" />
+    <label for="ce">Email</label><input id="ce" name="email" type="text" />
+    <label for="cm">Message</label><textarea id="cm" name="message"></textarea>
+  </form>
+
+  <!-- Negative case: a tiny 2-field form (e.g. a login box) — below the minimum field
+       count regardless of URL, so it should never fire. -->
+  <form id="login-form">
+    <label for="lu">Username</label><input id="lu" name="username" type="text" />
+    <label for="lp">Password</label><input id="lp" name="password" type="password" />
+  </form>
+
+  <pre id="results">running…</pre>
+
+  <script src="../../src/public/contentScripts/utils.js"></script>
+  <script src="../../src/public/contentScripts/signature.js"></script>
+  <script src="../../src/public/contentScripts/learningStore.js"></script>
+  <script src="../../src/public/contentScripts/formatConvert.js"></script>
+  <script src="../../src/public/contentScripts/matcher.js"></script>
+  <script src="../../src/public/contentScripts/reviewPanel.js"></script>
+  <script src="../../src/public/contentScripts/engine.js"></script>
+  <script>
+    const log=[]; function out(m){log.push(m);document.getElementById("results").textContent=log.join("\n");}
+    const assert=(n,c)=>out((c?"PASS ":"FAIL ")+n);
+
+    // afjLooksLikeJobApplicationPage checks field-count FIRST, before the URL/title signal
+    // (see its own comment: a tiny form shouldn't fire just because it sits on a page whose
+    // title mentions "careers"), then falls back to URL signal, then identity-field count
+    // for a mid-sized form with neither. Reset document.title between cases below so one
+    // case's title mutation doesn't leak into the next.
+    const jobForm = document.getElementById('job-form');
+    const contactForm = document.getElementById('contact-form');
+    const loginForm = document.getElementById('login-form');
+    const NEUTRAL_TITLE = "Gate check fixture";
+
+    // Case 1: identity-shaped form (4 fields, 4 identity hits) is accepted even WITHOUT a
+    // job-flavored URL — the URL check is just one of several ways in, not a prerequisite.
+    document.title = NEUTRAL_TITLE;
+    assert("identity-shaped form is accepted even on a non-job URL", afjLooksLikeJobApplicationPage(jobForm) === true);
+
+    // Case 2: same form, now also with a job-flavored title -> still accepted (the URL
+    // signal alone would also be sufficient here, once field count clears the minimum).
+    document.title = "Apply for Software Engineer — Careers";
+    assert("identity-shaped form on a job-flavored URL/title is accepted", afjLooksLikeJobApplicationPage(jobForm) === true);
+
+    // Case 3: small generic contact form (3 fields, only 1 identity concept: email), with NO
+    // job-flavored title -> rejected (not enough identity hits to clear the bar on its own).
+    document.title = NEUTRAL_TITLE;
+    assert("small contact form with no job signal is rejected", afjLooksLikeJobApplicationPage(contactForm) === false);
+
+    // Case 4: tiny 2-field login form is rejected regardless of title — below the minimum
+    // field count, so the check never even reaches the URL or identity logic.
+    document.title = "Apply for Software Engineer — Careers";
+    assert("2-field login form is rejected even on a job-flavored title", afjLooksLikeJobApplicationPage(loginForm) === false);
+
+    document.title = NEUTRAL_TITLE;
+    out("DONE");
+  </script>
+</body>
+</html>

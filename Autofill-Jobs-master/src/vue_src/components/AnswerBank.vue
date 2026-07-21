@@ -80,9 +80,10 @@ export default {
 }
 .abMeta {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  gap: 0.5rem;
+  gap: 0.25rem 0.5rem;
 }
 .abLabel {
   font-family: 'Lexend';
@@ -92,9 +93,12 @@ export default {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  flex: 1 1 auto;
+  min-width: 0;
 }
 .abTags {
   display: flex;
+  flex-wrap: wrap;
   gap: 0.25rem;
   flex-shrink: 0;
 }

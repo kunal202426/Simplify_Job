@@ -32,8 +32,14 @@ function _enqueue(fn) {
 }
 
 function _hasChromeLocal() {
+  // afjExtensionContextValid (utils.js) additionally checks chrome.runtime.id, which is
+  // what actually goes away when this content script's extension context is invalidated
+  // (e.g. the extension was reloaded while this tab was already open) — chrome.storage.local
+  // itself stays defined as an object even then, it just throws when called, so checking
+  // only for its existence isn't enough to avoid that throw.
   return (
-    typeof chrome !== "undefined" &&
+    typeof afjExtensionContextValid === "function" &&
+    afjExtensionContextValid() &&
     chrome.storage &&
     chrome.storage.local &&
     typeof chrome.storage.local.get === "function"
@@ -44,9 +50,13 @@ function _hasChromeLocal() {
 function getAllLearned() {
   return new Promise((resolve) => {
     if (!_hasChromeLocal()) return resolve({});
-    chrome.storage.local.get(LEARNED_KEY, (data) => {
-      resolve((data && data[LEARNED_KEY]) || {});
-    });
+    try {
+      chrome.storage.local.get(LEARNED_KEY, (data) => {
+        resolve((data && data[LEARNED_KEY]) || {});
+      });
+    } catch (_) {
+      resolve({});
+    }
   });
 }
 
@@ -59,7 +69,11 @@ async function getLearnedField(hash) {
 function _setAllLearned(bank) {
   return new Promise((resolve) => {
     if (!_hasChromeLocal()) return resolve();
-    chrome.storage.local.set({ [LEARNED_KEY]: bank }, () => resolve());
+    try {
+      chrome.storage.local.set({ [LEARNED_KEY]: bank }, () => resolve());
+    } catch (_) {
+      resolve();
+    }
   });
 }
 

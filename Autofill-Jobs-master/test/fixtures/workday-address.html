@@ -1,0 +1,87 @@
+<!doctype html>
+<html>
+<head><meta charset="utf-8" /><title>Workday address duplication regression</title>
+<style>body{font-family:sans-serif;max-width:640px;margin:20px auto}#results{background:#111;color:#0f0;padding:12px;white-space:pre-wrap;font-family:monospace;font-size:12px}</style>
+</head>
+<body>
+  <h1>Workday address duplication regression</h1>
+
+  <fieldset>
+    <legend>Address (Local)</legend>
+    <label for="l1">Address Line 1 - Local</label>
+    <input id="l1" type="text" />
+    <label for="l2">Address Line 2 - Local</label>
+    <input id="l2" type="text" />
+    <label for="l3">Address Line 3 - Local</label>
+    <input id="l3" type="text" />
+    <label for="cityL">City - Local</label>
+    <input id="cityL" type="text" />
+  </fieldset>
+
+  <fieldset>
+    <legend>Address</legend>
+    <label for="a1">Address Line 1</label>
+    <input id="a1" type="text" />
+    <label for="a2">Address Line 2</label>
+    <input id="a2" type="text" />
+    <label for="a3">Address Line 3</label>
+    <input id="a3" type="text" />
+    <label for="city">City</label>
+    <input id="city" type="text" />
+  </fieldset>
+
+  <pre id="results">running…</pre>
+
+  <script>
+    (function () {
+      const _local = {}, _sync = {};
+      function resolve(s, k){ if(k==null) return {...s}; if(Array.isArray(k)){const o={};k.forEach(x=>{if(x in s)o[x]=s[x]});return o;} const o={}; if(k in s)o[k]=s[k]; return o; }
+      window.chrome = { runtime: { id: "test-extension-id" }, storage: {
+        local:{ get:(k,cb)=>cb(resolve(_local,k)), set:(o,cb)=>{Object.assign(_local,o);cb&&cb();} },
+        sync: { get:(k,cb)=>cb(resolve(_sync,k)),  set:(o,cb)=>{Object.assign(_sync,o);cb&&cb();} } } };
+      // Simulate a STALE learned answer from an earlier Workday application, exactly like
+      // the reported bug: user once manually typed an old address into a plain
+      // "Address Line 1" field, and it got learned.
+      window.chrome.storage.local.set({ learnedFields: {} }, () => {});
+      window.__store = { local: _local, sync: _sync };
+      // Seed current profile with the NEW/current address.
+      _sync["Location (Street)"] = "123 Example Street, Springfield, State";
+      _sync["Location (City)"] = "Springfield";
+    })();
+  </script>
+  <script src="../../src/public/contentScripts/utils.js"></script>
+  <script src="../../src/public/contentScripts/signature.js"></script>
+  <script src="../../src/public/contentScripts/learningStore.js"></script>
+  <script src="../../src/public/contentScripts/formatConvert.js"></script>
+  <script src="../../src/public/contentScripts/matcher.js"></script>
+  <script src="../../src/public/contentScripts/reviewPanel.js"></script>
+  <script src="../../src/public/contentScripts/engine.js"></script>
+  <script>
+    const log=[]; function out(m){log.push(m);document.getElementById("results").textContent=log.join("\n");}
+    const assert=(n,c)=>out((c?"PASS ":"FAIL ")+n);
+    const val=(id)=>document.getElementById(id).value;
+    (async function(){
+      // First seed a stale learned entry keyed on the plain "Address Line 1" signature,
+      // like the user's real bug: they once manually filled it with an OLD address.
+      const staleSig = generateSignature(document.getElementById('a1'));
+      await upsertLearnedField(staleSig, "413 ZOY Prestige, Vinayaka Nagar, Hosapalaya, Old City", "manual");
+
+      const res = await getStorageDataSync();
+      res["Current Date"] = curDateStr();
+      await runLearningEngine(document.body, "myworkdayjobs.com", res);
+
+      assert("Address Line 1 - Local gets current profile address", val("l1") === "123 Example Street, Springfield, State");
+      assert("Address Line 2 - Local stays EMPTY (no duplication)", val("l2") === "");
+      assert("Address Line 3 - Local stays EMPTY (no duplication)", val("l3") === "");
+      assert("City - Local filled", val("cityL") === "Springfield");
+
+      assert("Address Line 1 gets CURRENT profile address, not the stale learned one", val("a1") === "123 Example Street, Springfield, State");
+      assert("Address Line 2 stays EMPTY (no duplication)", val("a2") === "");
+      assert("Address Line 3 stays EMPTY (no duplication)", val("a3") === "");
+      assert("City filled", val("city") === "Springfield");
+
+      out("DONE");
+    })().catch(e=>out("ERROR "+(e&&e.stack||e)));
+  </script>
+</body>
+</html>

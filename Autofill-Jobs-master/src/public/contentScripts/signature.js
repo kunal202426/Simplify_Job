@@ -111,8 +111,10 @@ function sigIsRadio(el) {
 }
 
 /**
- * The option label of a single radio/checkbox (e.g. "Yes") — its own wrapping label or
- * adjacent text. Distinct from the group question, which getFieldLabel() returns.
+ * The option label of a single radio/checkbox (e.g. "Yes") — its own wrapping label,
+ * a sibling label associated via for="id" (a very common pattern where the visible label
+ * is a sibling, not an ancestor, of the input), or adjacent text. Distinct from the group
+ * question, which getFieldLabel() returns.
  */
 function getOptionLabel(el) {
   if (!el) return "";
@@ -122,6 +124,17 @@ function getOptionLabel(el) {
     clone.querySelectorAll("input, select, textarea, button").forEach((n) => n.remove());
     const t = sigTextContent(clone);
     if (t) return t;
+  }
+  if (el.id) {
+    try {
+      const forLabel = document.querySelector(`label[for="${CSS.escape(el.id)}"]`);
+      if (forLabel) {
+        const t = sigTextContent(forLabel);
+        if (t) return t;
+      }
+    } catch (_) {
+      /* invalid id for selector — ignore */
+    }
   }
   const aria = (el.getAttribute("aria-label") || "").trim();
   if (aria) return aria;
@@ -136,12 +149,17 @@ function getOptionLabel(el) {
 
 /**
  * The group-level question for a radio group (or role=group/radiogroup): the fieldset
- * legend, an aria label, or the nearest preceding heading — never the per-option text.
+ * legend, the group wrapper's aria label, or the nearest preceding heading — never the
+ * per-option text.
+ *
+ * Deliberately does NOT start by resolving the radio's own aria-labelledby: a common
+ * accessible-radio pattern points each individual radio's aria-labelledby at its OWN
+ * option label ("Yes"/"No"), not the group's question — trusting it first would collapse
+ * every Yes/No question on a page (different questions, same two options) into one
+ * signature. The wrapping group element's aria-labelledby (checked below) is what
+ * actually names the group; the radio's own attribute is only a last-resort fallback.
  */
 function getGroupLabel(el) {
-  const byId = sigTextFromIds(el.getAttribute("aria-labelledby"));
-  if (byId) return byId;
-
   const fieldset = el.closest("fieldset");
   if (fieldset) {
     const legend = fieldset.querySelector("legend");
@@ -156,7 +174,7 @@ function getGroupLabel(el) {
     if (lbl) return lbl;
   }
   // Walk up for a preceding heading/label near the group.
-  let node = el.closest("fieldset") || el;
+  let node = el.closest("fieldset") || group || el;
   for (let depth = 0; depth < 4 && node; depth++) {
     let s = node.previousElementSibling;
     while (s) {
@@ -168,6 +186,10 @@ function getGroupLabel(el) {
     }
     node = node.parentElement;
   }
+  // Last resort: the radio's own aria-labelledby/name — may point at the option rather
+  // than the group on some sites, but is better than nothing when everything else fails.
+  const byId = sigTextFromIds(el.getAttribute("aria-labelledby"));
+  if (byId) return byId;
   return (el.getAttribute("name") || "").trim();
 }
 
@@ -278,7 +300,11 @@ function getFieldOptions(el) {
   }
   const type = (el.getAttribute("type") || "").toLowerCase();
   if (type === "radio" && el.name) {
-    const group = document.querySelectorAll(
+    // Scope to the nearest structural container, not the whole document — a repeatable
+    // section ("+ Add Employer") that reuses the same radio `name` per instance would
+    // otherwise pull option labels from an unrelated copy of the same group elsewhere.
+    const scope = el.closest('form, fieldset, [role="group"], [role="radiogroup"]') || document;
+    const group = scope.querySelectorAll(
       `input[type="radio"][name="${CSS.escape(el.name)}"]`
     );
     return Array.from(group)
@@ -286,6 +312,91 @@ function getFieldOptions(el) {
       .filter(Boolean);
   }
   return [];
+}
+
+/* ------------------------------------------------------------------ */
+/* Pill/button-group widgets (behavior-shaped, not tag-shaped)          */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Some component libraries render a single-choice picker as a visible-upfront row of
+ * buttons — a "pill group" — instead of a native <select> or radio group (e.g. Oracle
+ * JET's cx-select-pills). Detected by ARIA structure (role="list" > role="listitem", each
+ * wrapping one clickable option), not by any site-specific class name, so this covers any
+ * component library using the same accessible pattern, not just the one it was found on.
+ */
+function sigIsPillOptionButton(el) {
+  if (!el) return false;
+  if (el.tagName.toLowerCase() === "button") return true;
+  return (el.getAttribute("role") || "").toLowerCase() === "button";
+}
+
+// Button text signaling "this is an action, not a choice" (Submit/Next/Remove/...) — excluded
+// so a pill-group is never mistaken for a toolbar/actions row, and critically, so nothing in
+// this codebase can ever be made to click something destructive or navigational.
+const PILL_ACTION_EXCLUDE_WORDS = [
+  "submit", "next", "back", "continue", "cancel", "close", "remove", "delete", "add",
+  "download", "apply", "search", "save", "edit", "upload", "browse", "clear", "sign",
+];
+
+function sigLooksLikeActionButton(text) {
+  const t = (text || "").toLowerCase().trim();
+  if (!t) return true;
+  return PILL_ACTION_EXCLUDE_WORDS.some((w) => t === w || t.startsWith(w + " ") || t.includes(" " + w));
+}
+
+/**
+ * Find pill-group chooser containers within scope. Each qualifying container must have
+ * 2-20 role="listitem" children, each wrapping exactly one short, non-action option button
+ * — a real chooser, not a nav menu or an actions toolbar.
+ * @returns {{container: Element, buttons: Element[]}[]}
+ */
+function findPillGroups(scope) {
+  const groups = [];
+  const containers = (scope || document).querySelectorAll('[role="list"]');
+  containers.forEach((container) => {
+    const items = Array.from(container.children).filter(
+      (child) => (child.getAttribute("role") || "").toLowerCase() === "listitem"
+    );
+    if (items.length < 2 || items.length > 20) return;
+
+    const buttons = [];
+    for (const item of items) {
+      const btn = sigIsPillOptionButton(item) ? item : item.querySelector('button, [role="button"]');
+      if (!btn) return; // every item must have exactly one option control
+      const text = sigTextContent(btn);
+      if (!text || text.length > 60 || sigLooksLikeActionButton(text)) return;
+      buttons.push(btn);
+    }
+    groups.push({ container, buttons });
+  });
+  return groups;
+}
+
+/** The currently-selected pill button's text, or "" if none is marked selected. */
+function getPillGroupValue(group) {
+  for (const btn of group.buttons) {
+    const pressed = (btn.getAttribute("aria-pressed") || "").toLowerCase() === "true";
+    const selected = (btn.getAttribute("aria-selected") || "").toLowerCase() === "true";
+    const activeClass = /(^|\s)(selected|active|is-selected|is-active)(\s|$)/i.test(btn.className || "");
+    if (pressed || selected || activeClass) return sigTextContent(btn);
+  }
+  return "";
+}
+
+/** Build a signature for a pill group, treating it like a select field. */
+function generatePillGroupSignature(group) {
+  const rawLabel = getFieldLabel(group.container);
+  const tokens = labelTokens(rawLabel);
+  const options = group.buttons.map((b) => sigTextContent(b)).filter(Boolean);
+  return {
+    rawLabel: rawLabel,
+    normalized: normalizeLabel(rawLabel),
+    tokens: tokens,
+    fieldType: "select",
+    options: options,
+    hash: signatureHash(tokens, "select"),
+  };
 }
 
 /**
@@ -315,5 +426,6 @@ if (typeof module !== "undefined" && module.exports) {
     hashSignature,
     signatureHash,
     SIG_STOPWORDS,
+    sigLooksLikeActionButton,
   };
 }

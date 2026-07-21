@@ -1,0 +1,87 @@
+<!doctype html>
+<html>
+<head><meta charset="utf-8" /><title>Keka-like fixture</title>
+<style>
+  body{font-family:sans-serif;max-width:640px;margin:20px auto}
+  #results{background:#111;color:#0f0;padding:12px;white-space:pre-wrap;font-family:monospace;font-size:12px}
+  .select2-hidden-accessible {
+    border: 0 !important; clip: rect(0 0 0 0) !important; clip-path: inset(50%) !important;
+    height: 1px !important; margin: -1px !important; overflow: hidden !important;
+    padding: 0 !important; position: absolute !important; width: 1px !important; white-space: nowrap !important;
+  }
+</style>
+</head>
+<body>
+  <h1>Keka-like resume upload + Select2 fixture</h1>
+
+  <!-- Exactly like Keka: no <label>, wrapped in <a>, real signal is data-field-identifier -->
+  <div class="resume-upload-container">
+    <span class="font-large"><a id="select-resume">Upload resume</a></span>
+    <div class="d-flex justify-content-center text-secondary text-x-small text-center">
+      <p class="mb-0">This will auto-fill the fields below. 10MB max file size (Allowed file types are .doc, .pdf, .docx, .rtf, .odt).</p>
+    </div>
+    <input type="file" class="resume-upload" id="resume-upload" data-field-identifier="resume" name="">
+  </div>
+  <div class="resume-upload-button-container">
+    <a class="resume-upload-link">
+      <span class="btn">Upload Resume/CV</span>
+      <input type="file" class="resume-upload" data-field-identifier="resume" name="">
+    </a>
+  </div>
+
+  <label for="firstName">First Name</label>
+  <input type="text" id="firstName" name="firstName">
+
+  <label for="cc">Mobile Phone</label>
+  <select class="countryCode select2-hidden-accessible" name="mobilePhone.countryCode" id="cc" tabindex="-1" aria-hidden="true">
+    <option value=""></option>
+    <option value="+91">+91</option>
+    <option value="+1">+1</option>
+  </select>
+  <span class="select2 select2-container"><span class="selection"><span class="select2-selection" role="combobox"><span class="select2-selection__rendered">Select</span></span></span></span>
+
+  <pre id="results">running…</pre>
+
+  <script>
+    (function () {
+      const _local = {}, _sync = {};
+      function resolve(s, k){ if(k==null) return {...s}; if(Array.isArray(k)){const o={};k.forEach(x=>{if(x in s)o[x]=s[x]});return o;} const o={}; if(k in s)o[k]=s[k]; return o; }
+      window.chrome = { runtime: { id: "test-extension-id" }, storage: {
+        local:{ get:(k,cb)=>cb(resolve(_local,k)), set:(o,cb)=>{Object.assign(_local,o);cb&&cb();} },
+        sync: { get:(k,cb)=>cb(resolve(_sync,k)),  set:(o,cb)=>{Object.assign(_sync,o);cb&&cb();} } } };
+      _local["Resume"] = btoa("dummy pdf bytes");
+      _local["Resume_name"] = "sample_resume.pdf";
+      _sync["First Name"] = "Kunal";
+      window.__store = { local: _local, sync: _sync };
+    })();
+  </script>
+  <script src="../../src/public/contentScripts/utils.js"></script>
+  <script src="../../src/public/contentScripts/signature.js"></script>
+  <script src="../../src/public/contentScripts/learningStore.js"></script>
+  <script src="../../src/public/contentScripts/formatConvert.js"></script>
+  <script src="../../src/public/contentScripts/matcher.js"></script>
+  <script src="../../src/public/contentScripts/reviewPanel.js"></script>
+  <script src="../../src/public/contentScripts/engine.js"></script>
+  <script>
+    const log=[]; function out(m){log.push(m);document.getElementById("results").textContent=log.join("\n");}
+    const assert=(n,c)=>out((c?"PASS ":"FAIL ")+n);
+    (async function(){
+      const res = await getStorageDataSync();
+      res["Current Date"] = curDateStr();
+      await runLearningEngine(document.body, "keka.com", res);
+
+      const resumeInput = document.getElementById('resume-upload');
+      assert("Resume uploaded despite no clean <label> (via data-field-identifier)",
+        resumeInput.files.length === 1 && resumeInput.files[0].name === 'sample_resume.pdf');
+
+      assert("First Name filled from profile", document.getElementById('firstName').value === 'Kunal');
+
+      const cc = document.getElementById('cc');
+      assert("Select2-hidden country-code select was not skipped as invisible (value assignable)",
+        cc.getClientRects().length > 0);
+
+      out("DONE");
+    })().catch(e=>out("ERROR "+(e&&e.stack||e)));
+  </script>
+</body>
+</html>

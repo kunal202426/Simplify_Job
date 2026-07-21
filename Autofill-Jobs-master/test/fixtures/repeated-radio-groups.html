@@ -1,0 +1,87 @@
+<!doctype html>
+<html>
+<head><meta charset="utf-8" /><title>Repeated radio-group name collision regression</title>
+<style>body{font-family:sans-serif;max-width:640px;margin:20px auto}#results{background:#111;color:#0f0;padding:12px;white-space:pre-wrap;font-family:monospace;font-size:12px}</style>
+</head>
+<body>
+  <h1>Two "+ Add Employer" style sections that carelessly reuse the same radio `name`</h1>
+  <p>A dynamic form generator that doesn't uniquify field names per repeated block is a real
+  pattern on some ATSes. The root bug: afjCollectFields used to dedupe radio groups by name
+  ALONE across the whole page, so only the FIRST section's group was ever collected at all —
+  the second was entirely invisible to matching/filling/learning. Using two separate &lt;form&gt;
+  elements here (native radio grouping is scoped per form-owner) isolates that from an
+  unrelated, unfixable-by-us browser behavior: same-name radios sharing one form are natively
+  one group regardless of our JS, so this fixture deliberately avoids that confound.</p>
+
+  <form id="employerForm1">
+    <fieldset id="employer1">
+      <legend>Employer 1: Are you currently employed here?</legend>
+      <label><input type="radio" name="currentlyEmployed" value="yes" /> Yes</label>
+      <label><input type="radio" name="currentlyEmployed" value="no" /> No</label>
+    </fieldset>
+  </form>
+
+  <form id="employerForm2">
+    <fieldset id="employer2">
+      <legend>Employer 2: Are you currently employed here?</legend>
+      <label><input type="radio" name="currentlyEmployed" value="yes" /> Yes</label>
+      <label><input type="radio" name="currentlyEmployed" value="no" /> No</label>
+    </fieldset>
+  </form>
+
+  <pre id="results">running…</pre>
+
+  <script>
+    (function () {
+      const _local = {}, _sync = {};
+      function resolve(s, k){ if(k==null) return {...s}; if(Array.isArray(k)){const o={};k.forEach(x=>{if(x in s)o[x]=s[x]});return o;} const o={}; if(k in s)o[k]=s[k]; return o; }
+      window.chrome = { runtime: { id: "test-extension-id" }, storage: {
+        local:{ get:(k,cb)=>cb(resolve(_local,k)), set:(o,cb)=>{Object.assign(_local,o);cb&&cb();} },
+        sync: { get:(k,cb)=>cb(resolve(_sync,k)),  set:(o,cb)=>{Object.assign(_sync,o);cb&&cb();} } } };
+      window.__store = { local: _local, sync: _sync };
+    })();
+  </script>
+  <script src="../../src/public/contentScripts/utils.js"></script>
+  <script src="../../src/public/contentScripts/signature.js"></script>
+  <script src="../../src/public/contentScripts/learningStore.js"></script>
+  <script src="../../src/public/contentScripts/formatConvert.js"></script>
+  <script src="../../src/public/contentScripts/matcher.js"></script>
+  <script src="../../src/public/contentScripts/reviewPanel.js"></script>
+  <script src="../../src/public/contentScripts/engine.js"></script>
+  <script>
+    const log=[]; function out(m){log.push(m);document.getElementById("results").textContent=log.join("\n");}
+    const assert=(n,c)=>out((c?"PASS ":"FAIL ")+n);
+    const fire=(el,type)=>el.dispatchEvent(new Event(type,{bubbles:true}));
+
+    (async function () {
+      const res = await getStorageDataSync();
+      res["Current Date"] = curDateStr();
+      // Scope the scan to document.body, since the two sections live in separate <form>s.
+      await runLearningEngine(document.body, "fixture", res);
+
+      const e1yes = document.querySelector('#employer1 input[value="yes"]');
+      const e2yes = document.querySelector('#employer2 input[value="yes"]');
+      const e2no = document.querySelector('#employer2 input[value="no"]');
+
+      assert("employer 1's group got collected and learn-bound (root bug: only the FIRST same-named group ever was)",
+        !!e1yes.__afjLearnBound);
+      assert("employer 2's group ALSO got collected and learn-bound, despite sharing employer 1's radio name",
+        !!e2yes.__afjLearnBound);
+
+      // Answer them independently (separate forms -> independent native check state) and
+      // confirm each learns its OWN value, not the other section's.
+      e1yes.checked = true; fire(e1yes, "change");
+      await new Promise(r => setTimeout(r, 200));
+      e2no.checked = true; fire(e2no, "change");
+      await new Promise(r => setTimeout(r, 200));
+
+      const bank = await getAllLearned();
+      const values = Object.values(bank).map(e => e.value);
+      assert("both 'Yes' and 'No' ended up learned (not just one, and not merged/overwritten)",
+        values.includes("Yes") && values.includes("No"));
+
+      out("DONE");
+    })().catch(e => out("ERROR " + (e && e.stack || e)));
+  </script>
+</body>
+</html>

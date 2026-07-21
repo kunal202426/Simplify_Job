@@ -1,0 +1,120 @@
+<!doctype html>
+<html>
+<head><meta charset="utf-8" /><title>Generic ARIA combobox regression</title>
+<style>
+  body{font-family:sans-serif;max-width:640px;margin:20px auto}
+  #results{background:#111;color:#0f0;padding:12px;white-space:pre-wrap;font-family:monospace;font-size:12px}
+  #portal-listbox, #portal-listbox2{display:none;border:1px solid #888;list-style:none;padding:4px;margin:0;width:200px;}
+  #portal-listbox li, #portal-listbox2 li{padding:4px;cursor:pointer;}
+</style>
+</head>
+<body>
+  <h1>Generic ARIA combobox (portaled listbox, no native change event on select — like React)</h1>
+
+  <label for="country-combo">Country</label>
+  <input id="country-combo" role="combobox" aria-haspopup="listbox" aria-controls="portal-listbox" aria-expanded="false" type="text" />
+
+  <label for="visa-combo">Do you require visa sponsorship?</label>
+  <input id="visa-combo" role="combobox" aria-haspopup="listbox" aria-controls="portal-listbox2" aria-expanded="false" type="text" />
+
+  <!-- Rendered "elsewhere" in the DOM (a React portal would append to document.body, not
+       nest under the field) — deliberately placed outside any form container. -->
+  <ul id="portal-listbox" role="listbox"></ul>
+  <ul id="portal-listbox2" role="listbox"></ul>
+
+  <pre id="results">running…</pre>
+
+  <script>
+    // A tiny vanilla-JS stand-in for a React-Select-style combobox: selecting an option sets
+    // .value via a direct property write (like a React re-render), WITHOUT dispatching any
+    // native 'change'/'input' event — this is deliberately the hard case.
+    function wireCombobox(inputId, listboxId, options) {
+      const input = document.getElementById(inputId);
+      const listbox = document.getElementById(listboxId);
+      listbox.innerHTML = options.map(o => `<li role="option">${o}</li>`).join('');
+      function open() { listbox.style.display = 'block'; input.setAttribute('aria-expanded', 'true'); }
+      function close() { listbox.style.display = 'none'; input.setAttribute('aria-expanded', 'false'); }
+      input.addEventListener('focus', open);
+      input.addEventListener('click', open);
+      listbox.addEventListener('click', (ev) => {
+        const li = ev.target.closest('li');
+        if (!li) return;
+        input.value = li.textContent; // direct property write, no dispatched event — the point
+        close();
+      });
+    }
+    wireCombobox('country-combo', 'portal-listbox', ['United States', 'India', 'United Kingdom', 'Canada']);
+    wireCombobox('visa-combo', 'portal-listbox2', ['Yes', 'No']);
+  </script>
+
+  <script>
+    (function () {
+      const _local = {}, _sync = {};
+      function resolve(s, k){ if(k==null) return {...s}; if(Array.isArray(k)){const o={};k.forEach(x=>{if(x in s)o[x]=s[x]});return o;} const o={}; if(k in s)o[k]=s[k]; return o; }
+      window.chrome = { runtime: { id: "test-extension-id" }, storage: {
+        local:{ get:(k,cb)=>cb(resolve(_local,k)), set:(o,cb)=>{Object.assign(_local,o);cb&&cb();} },
+        sync: { get:(k,cb)=>cb(resolve(_sync,k)),  set:(o,cb)=>{Object.assign(_sync,o);cb&&cb();} } } };
+      window.__store = { local: _local, sync: _sync };
+    })();
+  </script>
+  <script src="../../src/public/contentScripts/utils.js"></script>
+  <script src="../../src/public/contentScripts/signature.js"></script>
+  <script src="../../src/public/contentScripts/learningStore.js"></script>
+  <script src="../../src/public/contentScripts/formatConvert.js"></script>
+  <script src="../../src/public/contentScripts/matcher.js"></script>
+  <script src="../../src/public/contentScripts/reviewPanel.js"></script>
+  <script src="../../src/public/contentScripts/engine.js"></script>
+  <script>
+    const log=[]; function out(m){log.push(m);document.getElementById("results").textContent=log.join("\n");}
+    const assert=(n,c)=>out((c?"PASS ":"FAIL ")+n);
+
+    (async function () {
+      const res = await getStorageDataSync();
+      res["Current Date"] = curDateStr();
+
+      // --- Part 1: manual learning from a real user-style click (no fill attempt first) ---
+      await runLearningEngine(document.body, "fixture", res);
+
+      const visaInput = document.getElementById('visa-combo');
+      // Simulate a real user click: mousedown fires as part of every genuine click, even in
+      // contexts (like this automated test) where the window lacks OS focus and .focus()
+      // alone won't dispatch a 'focusin' event — see engine.js comment on why mousedown is
+      // tracked as well as focusin.
+      visaInput.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+      visaInput.focus();
+      visaInput.click();
+      await new Promise(r => setTimeout(r, 50));
+      const noOption = Array.from(document.querySelectorAll('#portal-listbox2 li')).find(li => li.textContent === 'No');
+      noOption.click(); // real user clicks an option in the (portaled) listbox
+      await new Promise(r => setTimeout(r, 400)); // learn handler has its own 150ms settle delay
+
+      const bank1 = await getAllLearned();
+      const learnedVisa = Object.values(bank1).find(e => e.value === 'No');
+      assert("manual click-to-select on a portaled combobox got learned (no native change event fired)", !!learnedVisa);
+
+      // --- Part 2: auto-fill a DIFFERENT combobox from a learned value ---
+      const countrySig = generateSignature(document.getElementById('country-combo'));
+      await upsertLearnedField(countrySig, 'India', 'manual');
+
+      // Fresh element, same label, to properly exercise "recall on a new page" (__afjProcessed
+      // marks are per-page-session, so reusing an already-processed element would be invalid).
+      const freshCombo = document.createElement('input');
+      freshCombo.id = 'country-combo-2';
+      freshCombo.setAttribute('role', 'combobox');
+      freshCombo.setAttribute('aria-haspopup', 'listbox');
+      freshCombo.setAttribute('aria-controls', 'portal-listbox');
+      const freshLabel = document.createElement('label');
+      freshLabel.setAttribute('for', 'country-combo-2');
+      freshLabel.textContent = 'Country';
+      document.body.appendChild(freshLabel);
+      document.body.appendChild(freshCombo);
+
+      await runLearningEngine(document.body, "fixture", res);
+      await new Promise(r => setTimeout(r, 500));
+      assert("auto-fill selected the matching option text into a fresh combobox", freshCombo.value === 'India');
+
+      out("DONE");
+    })().catch(e => out("ERROR " + (e && e.stack || e)));
+  </script>
+</body>
+</html>

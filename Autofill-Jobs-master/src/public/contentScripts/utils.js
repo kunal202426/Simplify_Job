@@ -208,16 +208,38 @@ Scroll to top of window.
   return ((cur - startTime) / 1000).toFixed(3);
 }
 /**
+ True while this content script's extension context is still valid. Content scripts stay
+ alive in an already-open tab even after the extension is reloaded/updated/disabled — any
+ chrome.* call from that point on throws "Extension context invalidated" (not a rejected
+ promise, a synchronous throw), since Chrome only re-injects fresh content scripts on the
+ next page load. Checking chrome.runtime.id (which becomes undefined once invalidated) is
+ the standard way to detect this before calling into a chrome.* API, so a stale script
+ degrades quietly instead of throwing into the extension's Errors panel on every tick of a
+ periodic re-scan.
+ */
+ function afjExtensionContextValid() {
+  try {
+    return !!(typeof chrome !== "undefined" && chrome.runtime && chrome.runtime.id);
+  } catch (_) {
+    return false;
+  }
+}
+/**
  Data retreival for chrome local storage.
  */
  const getStorageDataLocal = (key) => {
   return new Promise((resolve) => {
-    if (key === undefined) {
-      // If no key is passed, fetch all data
-      chrome.storage.local.get(null, resolve);
-    } else {
-      // If a key is passed, fetch only the value for that key
-      chrome.storage.local.get(key, resolve);
+    if (!afjExtensionContextValid()) return resolve({});
+    try {
+      if (key === undefined) {
+        // If no key is passed, fetch all data
+        chrome.storage.local.get(null, resolve);
+      } else {
+        // If a key is passed, fetch only the value for that key
+        chrome.storage.local.get(key, resolve);
+      }
+    } catch (_) {
+      resolve({});
     }
   });
 };
@@ -226,12 +248,17 @@ Scroll to top of window.
  */
  const getStorageDataSync = (key) => {
   return new Promise((resolve) => {
-    if (key === undefined) {
-      // If no key is passed, fetch all data
-      chrome.storage.sync.get(null, resolve);
-    } else {
-      // If a key is passed, fetch only the value for that key
-      chrome.storage.sync.get(key, resolve);
+    if (!afjExtensionContextValid()) return resolve({});
+    try {
+      if (key === undefined) {
+        // If no key is passed, fetch all data
+        chrome.storage.sync.get(null, resolve);
+      } else {
+        // If a key is passed, fetch only the value for that key
+        chrome.storage.sync.get(key, resolve);
+      }
+    } catch (_) {
+      resolve({});
     }
   });
 };

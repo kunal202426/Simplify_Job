@@ -1,0 +1,50 @@
+<!doctype html>
+<html>
+<head><meta charset="utf-8" />
+<title>Select2 hidden-select visibility check</title>
+<style>
+  body{font-family:sans-serif;max-width:640px;margin:20px auto}
+  #results{background:#111;color:#0f0;padding:12px;white-space:pre-wrap;font-family:monospace;font-size:12px}
+  /* Select2's real, stable default "hidden-accessible" stylesheet rule (v4.x). */
+  .select2-hidden-accessible {
+    border: 0 !important;
+    clip: rect(0 0 0 0) !important;
+    -webkit-clip-path: inset(50%) !important;
+    clip-path: inset(50%) !important;
+    height: 1px !important;
+    margin: -1px !important;
+    overflow: hidden !important;
+    padding: 0 !important;
+    position: absolute !important;
+    width: 1px !important;
+    white-space: nowrap !important;
+  }
+</style>
+</head>
+<body>
+  <label for="cc">Country code</label>
+  <select class="countryCode select2-hidden-accessible" name="mobilePhone.countryCode" id="cc" tabindex="-1" aria-hidden="true">
+    <option value=""></option>
+    <option value="+91">+91</option>
+    <option value="+1">+1</option>
+  </select>
+  <span class="select2 select2-container select2-container--classic"><span class="selection"><span class="select2-selection select2-selection--single" role="combobox"><span class="select2-selection__rendered">Select</span></span></span></span>
+
+  <pre id="results">running…</pre>
+
+  <script src="../../src/public/contentScripts/utils.js"></script>
+  <script>
+    const log=[]; function out(m){log.push(m);document.getElementById("results").textContent=log.join("\n");}
+    const sel = document.getElementById('cc');
+    const rects = sel.getClientRects();
+    out("getClientRects().length = " + rects.length);
+    if (rects.length) out("rect: " + JSON.stringify({w: rects[0].width, h: rects[0].height}));
+    out("Would afjIsFillable's current check treat this as VISIBLE (i.e. rects.length > 0)? " + (rects.length > 0));
+
+    // Now test whether setting .value + dispatching change actually updates the Select2 UI.
+    sel.value = '+91';
+    sel.dispatchEvent(new Event('change', { bubbles: true }));
+    out("DONE (inspect visually / via jQuery if available: this page has no jQuery/Select2 JS loaded, so the visual span won't update here — this fixture only checks the getClientRects() question, which decides whether our engine attempts the fill at all).");
+  </script>
+</body>
+</html>

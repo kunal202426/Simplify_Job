@@ -1,0 +1,118 @@
+<!doctype html>
+<html>
+<head><meta charset="utf-8" /><title>Pill-group widget regression</title>
+<style>body{font-family:sans-serif;max-width:640px;margin:20px auto}#results{background:#111;color:#0f0;padding:12px;white-space:pre-wrap;font-family:monospace;font-size:12px}</style>
+</head>
+<body>
+  <h1>Oracle-style cx-select-pills (Title) + an action-button toolbar (must be ignored)</h1>
+
+  <label class="input-row__label" for="title-field">Title</label>
+  <div class="input-row__control-container">
+    <div>
+      <ul role="list" aria-label="Title" class="cx-select-pills-container">
+        <li role="listitem"><button type="button" aria-pressed="false"><span>Doctor</span></button></li>
+        <li role="listitem"><button type="button" aria-pressed="false"><span>Miss</span></button></li>
+        <li role="listitem"><button type="button" aria-pressed="false"><span>Mr.</span></button></li>
+        <li role="listitem"><button type="button" aria-pressed="false"><span>Mrs.</span></button></li>
+        <li role="listitem"><button type="button" aria-pressed="false"><span>Ms.</span></button></li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- A second pill group, already has a selection -->
+  <label class="input-row__label" for="marital-field">Marital Status</label>
+  <div class="input-row__control-container">
+    <ul role="list" aria-label="Marital Status">
+      <li role="listitem"><button type="button" aria-pressed="true">Married</button></li>
+      <li role="listitem"><button type="button" aria-pressed="false">Unmarried</button></li>
+    </ul>
+  </div>
+
+  <!-- Action-button toolbar that must NOT be treated as a pill group (safety gate) -->
+  <ul role="list" aria-label="actions">
+    <li role="listitem"><button type="button">Add Another Link</button></li>
+    <li role="listitem"><button type="button">Remove</button></li>
+  </ul>
+
+  <pre id="results">running…</pre>
+
+  <script>
+    (function () {
+      const _local = {}, _sync = {};
+      function resolve(s, k){ if(k==null) return {...s}; if(Array.isArray(k)){const o={};k.forEach(x=>{if(x in s)o[x]=s[x]});return o;} const o={}; if(k in s)o[k]=s[k]; return o; }
+      window.chrome = { runtime: { id: "test-extension-id" }, storage: {
+        local:{ get:(k,cb)=>cb(resolve(_local,k)), set:(o,cb)=>{Object.assign(_local,o);cb&&cb();} },
+        sync: { get:(k,cb)=>cb(resolve(_sync,k)),  set:(o,cb)=>{Object.assign(_sync,o);cb&&cb();} } } };
+      window.__store = { local: _local, sync: _sync };
+    })();
+  </script>
+  <script src="../../src/public/contentScripts/utils.js"></script>
+  <script src="../../src/public/contentScripts/signature.js"></script>
+  <script src="../../src/public/contentScripts/learningStore.js"></script>
+  <script src="../../src/public/contentScripts/formatConvert.js"></script>
+  <script src="../../src/public/contentScripts/matcher.js"></script>
+  <script src="../../src/public/contentScripts/reviewPanel.js"></script>
+  <script src="../../src/public/contentScripts/engine.js"></script>
+  <script>
+    const log=[]; function out(m){log.push(m);document.getElementById("results").textContent=log.join("\n");}
+    const assert=(n,c)=>out((c?"PASS ":"FAIL ")+n);
+
+    (async function () {
+      const res = await getStorageDataSync();
+      res["Current Date"] = curDateStr();
+
+      // --- Safety gate: the action-button toolbar must be excluded entirely ---
+      const found = findPillGroups(document.body);
+      out("Detected pill groups: " + found.map(g => g.container.getAttribute('aria-label')).join(", "));
+      assert("only Title + Marital Status detected (action toolbar excluded)",
+        found.length === 2 && found.every(g => g.container.getAttribute('aria-label') !== 'actions'));
+
+      // --- Run the engine ---
+      await runLearningEngine(document.body, "fixture", res);
+      await new Promise(r => setTimeout(r, 400));
+
+      // --- Existing-value read: Marital Status already has "Married" pressed ---
+      const maritalGroup = found.find(g => g.container.getAttribute('aria-label') === 'Marital Status');
+      assert("existing selection read correctly ('Married')", getPillGroupValue(maritalGroup) === 'Married');
+
+      // --- Manual click on Title -> should be learned ---
+      const titleGroup = found.find(g => g.container.getAttribute('aria-label') === 'Title');
+      const mrButton = titleGroup.buttons.find(b => b.textContent.trim() === 'Mr.');
+      mrButton.click();
+      await new Promise(r => setTimeout(r, 300));
+
+      const bank2 = await getAllLearned();
+      const learnedTitle = Object.values(bank2).find(e => e.value === 'Mr.');
+      assert("manual pill click was learned", !!learnedTitle);
+
+      // --- Auto-fill a FRESH pill group with the same label from the learned value ---
+      const freshWrap = document.createElement('div');
+      freshWrap.innerHTML = `
+        <label class="input-row__label" for="title-field-2">Title</label>
+        <ul role="list" aria-label="Title">
+          <li role="listitem"><button type="button">Doctor</button></li>
+          <li role="listitem"><button type="button">Miss</button></li>
+          <li role="listitem"><button type="button">Mr.</button></li>
+          <li role="listitem"><button type="button">Mrs.</button></li>
+          <li role="listitem"><button type="button">Ms.</button></li>
+        </ul>`;
+      document.body.appendChild(freshWrap);
+
+      // Track exactly which button(s) get a real click, via a genuine listener — not an
+      // inference from attributes we never wired up.
+      const clickedTexts = [];
+      freshWrap.querySelectorAll('button').forEach((b) => {
+        b.addEventListener('click', () => clickedTexts.push(b.textContent.trim()));
+      });
+
+      await runLearningEngine(document.body, "fixture", res);
+      await new Promise(r => setTimeout(r, 400));
+
+      assert("fresh pill group auto-filled by clicking exactly the learned option ('Mr.')",
+        clickedTexts.length === 1 && clickedTexts[0] === 'Mr.');
+
+      out("DONE");
+    })().catch(e => out("ERROR " + (e && e.stack || e)));
+  </script>
+</body>
+</html>

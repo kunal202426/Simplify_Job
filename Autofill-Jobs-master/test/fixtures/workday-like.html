@@ -23,13 +23,21 @@
     <button data-automation-id="countryDropdown" aria-haspopup="listbox">Select country</button>
   </div>
 
+  <!-- A second, freshly-created salary field (same label, new DOM node) — simulates a new
+       Workday tenant's page, since __afjProcessed marks elements per page-session and a
+       real recall test needs elements that were never touched in this session. -->
+  <div data-automation-id="applyFlowPageTwo">
+    <input class="css-xyz789" data-automation-id="salaryField-2"
+           data-automation-label="What are your desired annual salary expectations?" type="text" />
+  </div>
+
   <pre id="results">running…</pre>
 
   <script>
     (function () {
       const _local = {}, _sync = {};
       function resolve(s, k){ if(k==null) return {...s}; if(Array.isArray(k)){const o={};k.forEach(x=>{if(x in s)o[x]=s[x]});return o;} const o={}; if(k in s)o[k]=s[k]; return o; }
-      window.chrome = { storage: {
+      window.chrome = { runtime: { id: "test-extension-id" }, storage: {
         local:{ get:(k,cb)=>cb(resolve(_local,k)), set:(o,cb)=>{Object.assign(_local,o);cb&&cb();} },
         sync: { get:(k,cb)=>cb(resolve(_sync,k)),  set:(o,cb)=>{Object.assign(_sync,o);cb&&cb();} } } };
       window.__store = { local:_local, sync:_sync };
@@ -60,12 +68,14 @@
       assert("engine ran on Workday-like DOM without throwing", !threw);
       assert("native fields left as needs-input (no data yet)", salaryEl.value==="" && noticeEl.value==="");
 
-      // learn a salary answer, then confirm exact recall fills the native input
+      // learn a salary answer, then confirm exact recall fills a FRESH element with the same
+      // label (simulating a new tenant's page — see comment on applyFlowPageTwo above).
       salaryEl.value="120000"; salaryEl.dispatchEvent(new Event("change",{bubbles:true}));
       await new Promise(r=>setTimeout(r,250));
-      salaryEl.value=""; delete page.__afjEngineRan;
-      await runLearningEngine(page, "myworkdayjobs.com", {});
-      assert("exact recall fills Workday native input", salaryEl.value==="120000");
+      const pageTwo = document.querySelector('[data-automation-id="applyFlowPageTwo"]');
+      await runLearningEngine(pageTwo, "myworkdayjobs.com", {});
+      const salaryEl2 = document.querySelector('[data-automation-id="salaryField-2"]');
+      assert("exact recall fills a fresh Workday native input on a new page", salaryEl2.value==="120000");
       out("DONE");
     })().catch(e=>out("ERROR "+(e&&e.stack||e)));
   </script>

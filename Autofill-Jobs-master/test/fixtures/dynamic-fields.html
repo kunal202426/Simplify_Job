@@ -1,0 +1,85 @@
+<!doctype html>
+<html>
+<head><meta charset="utf-8" /><title>Dynamically-added fields regression</title>
+<style>body{font-family:sans-serif;max-width:640px;margin:20px auto}#results{background:#111;color:#0f0;padding:12px;white-space:pre-wrap;font-family:monospace;font-size:12px}</style>
+</head>
+<body>
+  <h1>Repeatable "Add Experience" section (Keka-style)</h1>
+  <form id="jobApplicationForm">
+    <label for="firstName">First Name</label>
+    <input id="firstName" name="firstName" type="text" />
+
+    <div id="experienceDetails"></div>
+    <button type="button" id="addExp">+ Add Experience Details</button>
+  </form>
+
+  <pre id="results">running…</pre>
+
+  <script>
+    (function () {
+      const _local = {}, _sync = {};
+      function resolve(s, k){ if(k==null) return {...s}; if(Array.isArray(k)){const o={};k.forEach(x=>{if(x in s)o[x]=s[x]});return o;} const o={}; if(k in s)o[k]=s[k]; return o; }
+      window.chrome = { runtime: { id: "test-extension-id" }, storage: {
+        local:{ get:(k,cb)=>cb(resolve(_local,k)), set:(o,cb)=>{Object.assign(_local,o);cb&&cb();} },
+        sync: { get:(k,cb)=>cb(resolve(_sync,k)),  set:(o,cb)=>{Object.assign(_sync,o);cb&&cb();} } } };
+      _sync["First Name"] = "Kunal";
+      window.__store = { local: _local, sync: _sync };
+    })();
+  </script>
+  <script src="../../src/public/contentScripts/utils.js"></script>
+  <script src="../../src/public/contentScripts/signature.js"></script>
+  <script src="../../src/public/contentScripts/learningStore.js"></script>
+  <script src="../../src/public/contentScripts/formatConvert.js"></script>
+  <script src="../../src/public/contentScripts/matcher.js"></script>
+  <script src="../../src/public/contentScripts/reviewPanel.js"></script>
+  <script src="../../src/public/contentScripts/engine.js"></script>
+  <script>
+    const log=[]; function out(m){log.push(m);document.getElementById("results").textContent=log.join("\n");}
+    const assert=(n,c)=>out((c?"PASS ":"FAIL ")+n);
+    const fire=(el,type)=>el.dispatchEvent(new Event(type,{bubbles:true}));
+
+    document.getElementById('addExp').addEventListener('click', () => {
+      const div = document.getElementById('experienceDetails');
+      const label = document.createElement('label');
+      label.setAttribute('for', 'companyName1');
+      label.textContent = 'Company Name';
+      const input = document.createElement('input');
+      input.type = 'text';
+      input.id = 'companyName1';
+      input.name = 'companyName1';
+      div.appendChild(label);
+      div.appendChild(input);
+    });
+
+    (async function () {
+      const form = document.getElementById('jobApplicationForm');
+      const res = await getStorageDataSync();
+      res["Current Date"] = curDateStr();
+
+      // Initial pass: only "First Name" exists.
+      await runLearningEngine(form, "fixture", res);
+      assert("First Name filled on initial pass", document.getElementById('firstName').value === 'Kunal');
+
+      // Simulate clicking "+ Add Experience Details" AFTER the initial pass — this field did
+      // not exist when runLearningEngine first ran.
+      document.getElementById('addExp').click();
+      await new Promise(r => setTimeout(r, 700)); // let the debounced observer catch up
+
+      const companyInput = document.getElementById('companyName1');
+      assert("newly-added field got a review-panel entry (was scanned by the observer)",
+        !!companyInput.__afjKey);
+
+      // Manually fill it, like a real user would.
+      companyInput.value = "Acme Corp";
+      fire(companyInput, "change");
+      await new Promise(r => setTimeout(r, 300));
+
+      const bank = await getAllLearned();
+      const learnedCompany = Object.values(bank).find(e => e.value === "Acme Corp");
+      assert("manually filling the DYNAMICALLY-ADDED field got learned", !!learnedCompany);
+
+      out("DONE");
+    })().catch(e => out("ERROR " + (e && e.stack || e)));
+  </script>
+</body>
+</html>

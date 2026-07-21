@@ -5,6 +5,9 @@ function getCurStageWorkday(form) {
   let curStep = progressBar.querySelector(
     '[data-automation-id="progressBarActiveStep"]'
   );
+  // Runs on every DOM mutation, including mid-render moments where React hasn't finished
+  // laying out the progress bar's children yet — must not throw on a transient shape.
+  if (!curStep || !curStep.children || curStep.children.length < 3) return null;
   return curStep.children[2].textContent ?? null;
 }
 
@@ -65,82 +68,98 @@ async function workDayAutofill(res) {
     let curStage = getCurStageWorkday(document);
     if (curStage && wrkDayFields[curStage] && curInstanceCompleted) {
       curInstanceCompleted = false;
-      await sleep(2000);
-      for (let jobParam in wrkDayFields[curStage]) {
-        //gets param from user data
-        const param = wrkDayFields[curStage][jobParam];
-
-        if (param === "Resume") {
-          let resume = await handleResume(jobParam);
-          if (resume) {
-            delete wrkDayFields[curStage][jobParam];
-            continue;
-          }
-        }
-        if (param === "Skills") {
-          let skills = await handleSkills();
-          if (skills) {
-            delete wrkDayFields[curStage][jobParam];
-            continue;
-          }
-        }
-        if (param === "Work Experience") {
-          //initial click
-          let workExp = await handleWorkExperience(jobParam);
-          if (workExp) {
-            delete wrkDayFields[curStage][jobParam];
-            continue;
-          }
-        }
-
-        let fillValue = res[param];
-        if (!fillValue) {
-          //no user data found for parameter
-          delete wrkDayFields[curStage][jobParam];
-          continue;
-        }
-
-        let inputElement = await handleInputElement(
-          workdayQuery(jobParam, document, "input"),
-          jobParam,
-          param,
-          fillValue
-        );
-        if (inputElement) {
-          delete wrkDayFields[curStage][jobParam];
-          continue;
-        }
-
-        let dropdown = await handleDropdownElement(
-          workdayQuery(jobParam, document, "button"),
-          fillValue
-        );
-        if (dropdown) {
-          delete wrkDayFields[curStage][jobParam];
-          continue;
-        }
-
-        //no element found
-        delete wrkDayFields[curStage][jobParam];
-      }
-
-      // After the mapped pass, run the learning engine over this stage so leftover NATIVE
-      // fields (text/textarea/radio) get exact/fuzzy fills, learn manual answers, and show
-      // in the review panel. NOTE: Workday's custom dropdown/multiselect widgets are not
-      // native form elements, so the engine covers them only partially here — this path is
-      // wired but needs live-tenant testing (see project notes).
+      // Wraps everything through the end of this stage's processing: one unusual field (or
+      // any other unexpected error) must never leave curInstanceCompleted stuck at false —
+      // that guard is what lets a NEW stage transition run at all, so a single unhandled
+      // throw here used to silently and permanently lock out every future stage for the rest
+      // of the page session, not just fail the one field that caused it.
       try {
-        let stageForm =
-          document.querySelector('[data-automation-id="applyFlowPage"]') ||
-          document.querySelector('form') ||
-          document.body;
-        delete stageForm.__afjEngineRan; // Workday is a multi-stage SPA; allow per-stage runs
-        await runLearningEngine(stageForm, window.location.hostname, res);
-      } catch (e) {
-        console.warn("AutofillJobs engine (workday) skipped:", e);
-      }
+        await sleep(2000);
+        for (let jobParam in wrkDayFields[curStage]) {
+          // Per-field isolation too, so one bad field doesn't even skip the REST of this
+          // same stage's fields.
+          try {
+            //gets param from user data
+            const param = wrkDayFields[curStage][jobParam];
 
-      curInstanceCompleted = true;
+            if (param === "Resume") {
+              let resume = await handleResume(jobParam);
+              if (resume) {
+                delete wrkDayFields[curStage][jobParam];
+                continue;
+              }
+            }
+            if (param === "Skills") {
+              let skills = await handleSkills();
+              if (skills) {
+                delete wrkDayFields[curStage][jobParam];
+                continue;
+              }
+            }
+            if (param === "Work Experience") {
+              //initial click
+              let workExp = await handleWorkExperience(jobParam);
+              if (workExp) {
+                delete wrkDayFields[curStage][jobParam];
+                continue;
+              }
+            }
+
+            let fillValue = res[param];
+            if (!fillValue) {
+              //no user data found for parameter
+              delete wrkDayFields[curStage][jobParam];
+              continue;
+            }
+
+            let inputElement = await handleInputElement(
+              workdayQuery(jobParam, document, "input"),
+              jobParam,
+              param,
+              fillValue,
+              res
+            );
+            if (inputElement) {
+              delete wrkDayFields[curStage][jobParam];
+              continue;
+            }
+
+            let dropdown = await handleDropdownElement(
+              workdayQuery(jobParam, document, "button"),
+              fillValue
+            );
+            if (dropdown) {
+              delete wrkDayFields[curStage][jobParam];
+              continue;
+            }
+
+            //no element found
+            delete wrkDayFields[curStage][jobParam];
+          } catch (e) {
+            console.warn("AutofillJobs (workday): skipped a field after an error", jobParam, e);
+            delete wrkDayFields[curStage][jobParam];
+          }
+        }
+
+        // After the mapped pass, run the learning engine over this stage so leftover NATIVE
+        // fields (text/textarea/radio) get exact/fuzzy fills, learn manual answers, and show
+        // in the review panel. NOTE: Workday's custom dropdown/multiselect widgets are not
+        // native form elements, so the engine covers them only partially here — this path is
+        // wired but needs live-tenant testing (see project notes).
+        try {
+          let stageForm =
+            document.querySelector('[data-automation-id="applyFlowPage"]') ||
+            document.querySelector('form') ||
+            document.body;
+          // Safe to call every stage transition: runLearningEngine is re-entrant (per-element
+          // idempotency) and its own observer keeps watching this scope across stages.
+          await runLearningEngine(stageForm, window.location.hostname, res);
+        } catch (e) {
+          console.warn("AutofillJobs engine (workday) skipped:", e);
+        }
+      } finally {
+        curInstanceCompleted = true;
+      }
     }
   });
   observer.observe(document.body, {
@@ -319,7 +338,7 @@ async function handleWorkExperience(jobParam) {
 
   return false;
 }
-async function handleInputElement(inputElement, jobParam,param, fillValue) {
+async function handleInputElement(inputElement, jobParam, param, fillValue, res) {
   if (inputElement != undefined) {
     //text fields
     if (jobParam == "month-input") {

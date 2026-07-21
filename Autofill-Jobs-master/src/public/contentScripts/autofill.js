@@ -22,7 +22,6 @@ import { workDayAutofill } from './workday';
 
 let initTime;
 window.addEventListener("load", (_) => {
-  console.log("AutofillJobs: found job page.");
   initTime = new Date().getTime();
   awaitForm();
 });
@@ -69,41 +68,13 @@ function formatCityStateCountry(data, param) {
 }
 
 async function awaitForm() {
-  // Create a MutationObserver to detect changes in the DOM
+  // The content script now runs on every https page (not just known job boards), so this
+  // observer fires on ordinary page churn everywhere — debounce its work to avoid scanning
+  // the DOM on every single mutation of a busy, unrelated page.
+  let debounceTimer = null;
   const observer = new MutationObserver((_, observer) => {
-    for (let jobForm in fields) {
-      if (!window.location.hostname.includes(jobForm)) continue;
-      //workday
-      if (jobForm == "workday") {
-        autofill(null);
-        observer.disconnect();
-        return;
-      }
-      let form = document.querySelector(applicationFormQuery);
-      if (form) {
-        observer.disconnect();
-        autofill(form);
-        return;
-      } else {
-        form = document.querySelector("form, #mainContent");
-        if (form) {
-          observer.disconnect();
-          autofill(form);
-          return;
-        }
-      }
-    }
-
-    // Matched host with no per-site map (iCIMS/Taleo/SuccessFactors/...) — run the engine
-    // generically on any detected application form.
-    let genericForm =
-      document.querySelector(applicationFormQuery) ||
-      document.querySelector("form, #mainContent");
-    if (genericForm && !genericForm.__afjEngineRan) {
-      observer.disconnect();
-      runGenericEngine(genericForm);
-      return;
-    }
+    clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(() => checkForForm(observer), 300);
   });
   observer.observe(document.body, {
     childList: true,
@@ -112,6 +83,41 @@ async function awaitForm() {
   if (window.location.hostname.includes("lever")) {
     let form = document.querySelector("#application-form, #application_form");
     if (form) autofill(form);
+  }
+}
+
+function checkForForm(observer) {
+  for (let jobForm in fields) {
+    if (!window.location.hostname.includes(jobForm)) continue;
+    //workday
+    if (jobForm == "workday") {
+      autofill(null);
+      observer.disconnect();
+      return;
+    }
+    let form = document.querySelector(applicationFormQuery);
+    if (form) {
+      observer.disconnect();
+      autofill(form);
+      return;
+    } else {
+      form = document.querySelector("form, #mainContent");
+      if (form) {
+        observer.disconnect();
+        autofill(form);
+        return;
+      }
+    }
+  }
+
+  // Unknown host — only proceed if this genuinely looks like a job application, since the
+  // extension is now injected on every https page rather than a curated list of job boards.
+  let genericForm =
+    document.querySelector(applicationFormQuery) ||
+    document.querySelector("form, #mainContent");
+  if (genericForm && afjLooksLikeJobApplicationPage(genericForm)) {
+    observer.disconnect();
+    runGenericEngine(genericForm);
   }
 }
 

@@ -4,10 +4,16 @@
   Given a field signature, decide what (if anything) to fill and where the answer came
   from, in strict priority order:
 
-    1. exact  — signature hash present in the learned bank (instant, no computation)
-    2. profile— maps to a stored profile field (identity/contact/socials), site-agnostic
-    3. fuzzy  — token-overlap (Jaccard) against the learned bank above a threshold, gated
-                on field-type compatibility and, for choice fields, live-option availability
+    1. profile— maps to a stored profile field (identity/contact/socials), site-agnostic.
+                Tried first: your actively-maintained profile is the freshest source for the
+                fields it covers, and should win over a learned answer that may predate a
+                later profile edit (e.g. you updated your address after once manually typing
+                an old one into an identically-labelled field on some other site).
+    2. exact  — signature hash present in the learned bank (instant, no computation).
+                Reached only for fields profile doesn't cover — custom compliance questions,
+                notice period, etc. — where the learned answer is authoritative.
+    3. fuzzy  — token-overlap against the learned bank above a threshold, gated on
+                field-type compatibility and, for choice fields, live-option availability
     4. none   — leave empty; the engine flags it for manual input and learns the answer
 
   Returns { value, source, confidence, entry }. `source` is one of
@@ -17,10 +23,14 @@
 */
 
 const FUZZY_AUTO_THRESHOLD = 0.6; // fill automatically at/above this Jaccard (flagged amber)
-const PROFILE_THRESHOLD = 0.6;
 
 function _tset(tokens) {
-  return new Set((tokens || []).filter(Boolean));
+  // Tolerate malformed entries in the learned bank (e.g. a stale record written by an
+  // earlier schema where `tokens` wasn't an array) — matchLearned loops over every bank
+  // entry for every field, so one bad record must not be able to throw and break matching
+  // for the entire rest of the page.
+  if (Array.isArray(tokens)) return new Set(tokens.filter(Boolean));
+  return new Set();
 }
 function _interCount(a, b) {
   let inter = 0;
@@ -35,6 +45,17 @@ function jaccardTokens(aTokens, bTokens) {
   return inter / (a.size + b.size - inter);
 }
 
+function _digitTokens(tokens) {
+  const out = new Set();
+  for (const t of tokens || []) if (/^\d+$/.test(t)) out.add(t);
+  return out;
+}
+function _sameDigitSet(a, b) {
+  if (a.size !== b.size) return false;
+  for (const d of a) if (!b.has(d)) return false;
+  return true;
+}
+
 /**
  * Similarity for reworded questions. Uses the overlap coefficient (|A∩B| / min(|A|,|B|))
  * rather than plain Jaccard, because the same question is often phrased more verbosely on
@@ -42,11 +63,20 @@ function jaccardTokens(aTokens, bTokens) {
  * punishes that length gap, overlap does not. Returns 0 unless the match clears a guard
  * that blocks a single generic shared token (like "name") from linking two long labels:
  * when both labels have >1 meaningful token, at least 2 must be shared.
+ *
+ * Enumerated fields (Address Line 1 vs Address Line 2, Phone Number 1 vs 2, ...) share
+ * almost all their wording and differ only by a trailing index — word overlap alone can't
+ * tell them apart, and would otherwise treat "Line 2" as a reworded "Line 1". A differing
+ * numeric token on both sides is a hard "these are different fields" signal, so it forces
+ * the score to 0 regardless of how much of the rest of the label matches.
  */
 function labelSimilarity(aTokens, bTokens) {
   const a = _tset(aTokens);
   const b = _tset(bTokens);
   if (!a.size || !b.size) return 0;
+  const da = _digitTokens(aTokens);
+  const db = _digitTokens(bTokens);
+  if (da.size && db.size && !_sameDigitSet(da, db)) return 0;
   const inter = _interCount(a, b);
   if (inter === 0) return 0;
   const minSize = Math.min(a.size, b.size);
@@ -79,6 +109,7 @@ const PROFILE_MATCHERS = [
   { key: "Full Name", all: ["full"], any: ["name"] },
   { key: "Preferred Name", all: ["preferred"], any: ["name"] },
   { key: "Phone", any: ["phone", "mobile", "telephone", "cell"] },
+  { key: "Date of Birth", any: ["birth", "dob"] },
   { key: "LinkedIn", any: ["linkedin"] },
   { key: "Github", any: ["github"] },
   { key: "Twitter/X", any: ["twitter"] },
@@ -91,7 +122,10 @@ const PROFILE_MATCHERS = [
   { key: "Location (City)", all: ["city"] },
   { key: "Location (State/Region)", any: ["state", "province", "region"] },
   { key: "Location (Country)", all: ["country"] },
-  { key: "Location (Street)", any: ["street", "address"] },
+  // "not" excludes overflow lines (Address Line 2/3/...) so the single stored street value
+  // doesn't get stuffed into every line of a multi-line address widget (Line 1 / Line 1 -
+  // Local still match, since no 2/3/... token is present).
+  { key: "Location (Street)", any: ["street", "address"], not: ["2", "3", "4", "5", "6"] },
   { key: "Postal/Zip Code", any: ["postal", "zip", "postcode"] },
   { key: "Gender", any: ["gender"] },
   { key: "Race", any: ["race", "ethnicity"] },
@@ -107,6 +141,9 @@ function _ruleMatches(rule, tokenSet) {
     let hit = false;
     for (const t of rule.any) if (tokenSet.has(t)) { hit = true; break; }
     if (!hit) return false;
+  }
+  if (rule.not) {
+    for (const t of rule.not) if (tokenSet.has(t)) return false;
   }
   return true;
 }
@@ -126,16 +163,18 @@ function matchProfile(sig, res) {
     const val = res[rule.key];
     if (val == null || val === "") continue;
     if (!_ruleMatches(rule, tokenSet)) continue;
-    // Score by how specific the rule is relative to the label, so "first name" prefers the
-    // First Name rule over a looser one.
+    // Score is used only to pick the most specific rule when several structurally match
+    // (e.g. "first name" should prefer the First Name rule over a looser one). Matching
+    // itself is already gated by the curated all/any/not conditions in _ruleMatches, so
+    // there's no separate confidence floor here — one previously rejected legitimate
+    // multi-word labels like "Address Line 1 - Local" simply for having extra tokens.
     const ruleTokens = [].concat(rule.all || [], rule.any || []);
     const score = jaccardTokens(sig.tokens, ruleTokens) + (rule.all ? 0.15 : 0);
     if (!best || score > best.confidence) {
       best = { value: val, key: rule.key, confidence: score };
     }
   }
-  if (best && best.confidence >= PROFILE_THRESHOLD * 0.5) return best; // rules are already precise
-  return null;
+  return best;
 }
 
 /* ---------------- fuzzy learned matching ---------------- */
@@ -169,19 +208,19 @@ function matchLearned(sig, bank, optionMatcher) {
 }
 
 /**
- * Full pipeline. Exact hash first, then profile, then fuzzy learned, else none.
+ * Full pipeline. Profile first, then exact learned, then fuzzy learned, else none.
  * @param optionMatcher optional gate for choice fields (formatConvert.matchOption)
  */
 function matchField(sig, res, bank, optionMatcher) {
-  // 1. exact learned
-  if (bank && bank[sig.hash]) {
-    const e = bank[sig.hash];
-    return { value: e.value, source: "learned-exact", confidence: 1, entry: e };
-  }
-  // 2. profile
+  // 1. profile — see module docstring for why this now comes before exact-learned.
   const prof = matchProfile(sig, res);
   if (prof) {
     return { value: prof.value, source: "profile", confidence: prof.confidence, profileKey: prof.key };
+  }
+  // 2. exact learned
+  if (bank && bank[sig.hash]) {
+    const e = bank[sig.hash];
+    return { value: e.value, source: "learned-exact", confidence: 1, entry: e };
   }
   // 3. fuzzy learned
   const fuzzy = matchLearned(sig, bank, optionMatcher);
@@ -195,7 +234,6 @@ function matchField(sig, res, bank, optionMatcher) {
 if (typeof module !== "undefined" && module.exports) {
   module.exports = {
     FUZZY_AUTO_THRESHOLD,
-    PROFILE_THRESHOLD,
     jaccardTokens,
     labelSimilarity,
     fieldTypesCompatible,

@@ -33,6 +33,7 @@ import AnswerBank from '@/components/AnswerBank.vue';
     'Mobile',
     'Office Phone'
   ]" />
+  <InputField label="Date of Birth" placeHolder="26/04/2004" />
   <h2 class="subheading">Experience</h2>
   <InputField  label="Resume" placeHolder="No file found"/>
 

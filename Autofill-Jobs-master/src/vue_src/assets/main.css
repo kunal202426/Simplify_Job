@@ -1,19 +1,24 @@
 @import url('https://fonts.googleapis.com/css2?family=Lexend:wght@100..900&display=swap');
 @import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;0,700;1,300;1,400;1,500;1,600;1,700&display=swap');
+*, *::before, *::after {
+  box-sizing: border-box;
+}
 body {
   overscroll-behavior: none;
-  box-sizing: border-box;
   padding: 0;
   margin:0;
   border:0;
+  overflow-x: hidden;
 }
 
 #app {
-  min-width: 400px;
-  
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+
   margin: 0;
   border: 0;
-  padding: 2rem;
+  padding: 1.25rem;
   background-color: rgb(233, 227, 216);
   display: flex;
   flex-direction: column;
@@ -66,22 +71,24 @@ body {
 }
 .inputFieldDiv {
   display: flex;
-  gap: 1rem;
+  flex-wrap: wrap;
+  gap: 0.4rem 1rem;
   align-items: center;
   justify-content: space-between;
 }
 .gridFieldDivHolder {
   display: flex;
-  gap: 1rem;
+  flex-wrap: wrap;
+  gap: 0.4rem 1rem;
   align-items: center;
   justify-content: space-between;
 }
 .gridFieldDiv{
-  display: flex; 
+  display: flex;
   gap: 0.5rem;
-  width: 15rem;
+  width: 100%;
   flex-wrap: wrap;
-  flex: 0 0 auto;
+  flex: 1 1 15rem;
   background-color: transparent;
   border-radius: 1rem;
   border: 0.2rem solid rgba(0, 0, 0, 0.093);
@@ -92,7 +99,7 @@ body {
   margin:0;
   height:fit-content;
   text-overflow: ellipsis;
-  max-width: 15rem;
+  max-width: 100%;
   color:var(--c1);
   caret-shape: block; caret-color: var(--c1);
 }
@@ -119,12 +126,14 @@ body {
 }
 .textAreaDiv {
   display: flex;
-  gap: 1rem;
+  flex-wrap: wrap;
+  gap: 0.4rem 1rem;
   align-items: center;
   justify-content: space-between;
 }
 .textAreaDiv :nth-child(2) {
-  width: 18rem;
+  width: 100%;
+  flex: 1 1 15rem;
   background-color: transparent;
   border-radius: 1rem;
   border: 0.2rem solid rgba(0, 0, 0, 0.093);
@@ -134,14 +143,15 @@ body {
   margin:0;
   overflow-y: scroll;
   text-wrap: wrap;
-  max-width: 20rem;
+  max-width: 100%;
   height: 5rem;
   max-height: 15rem;
   color:var(--c1);
   caret-shape: block; caret-color: var(--c1);
 }
 .inputFieldDiv :nth-child(2) {
-  width: fit-content;
+  width: 100%;
+  flex: 1 1 10rem;
   background-color: transparent;
   border-radius: 1rem;
   border: 0.2rem solid rgba(0, 0, 0, 0.093);
@@ -151,7 +161,7 @@ body {
   margin:0;
   height:fit-content;
   text-overflow: ellipsis;
-  max-width: 15rem;
+  max-width: 100%;
   color:var(--c1);
   caret-shape: block; caret-color: var(--c1);
 }
@@ -166,7 +176,7 @@ select.password {
 
 .inputFieldfileHolder :nth-child(2) {
  border:none;
- max-width: 13rem;
+ max-width: 100%;
  height:fit-content;
  font-size: 1rem;
  overflow-wrap: break-word;
@@ -240,8 +250,10 @@ h3{
 }
 .headerDiv{
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
+  gap: 0.5rem;
   margin-bottom: 1.5rem;
   margin-top:1rem;
 }

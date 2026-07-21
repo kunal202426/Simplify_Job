@@ -64,6 +64,17 @@ function _bucketOf(normValue) {
   return null;
 }
 
+// Whole-word containment (space-padded, like _phraseMatch above) rather than a raw
+// substring test — "india" is a raw substring of "british indian ocean territory" (it's the
+// first five letters of "indian"), which would otherwise confidently select the wrong
+// country/territory. Requiring a real word boundary rejects that while still matching
+// genuine partial phrases like "bachelor" inside "bachelor s degree".
+function _wordBoundaryContains(haystack, needle) {
+  if (!haystack || !needle) return false;
+  if (haystack === needle) return true;
+  return (" " + haystack + " ").includes(" " + needle + " ");
+}
+
 function _tokenSet(s) {
   return new Set(_norm(s).split(" ").filter(Boolean));
 }
@@ -92,11 +103,20 @@ function matchOption(value, options) {
     for (const opt of options) if (_bucketOf(_norm(opt)) === vb) return opt;
   }
 
-  // 3. containment either direction (guard against trivially short tokens)
-  if (nv.length >= 2) {
+  // 3. whole-word containment either direction. A raw substring test is dangerous for
+  // enumerated proper nouns — "india" is literally the first five letters of "indian" (as in
+  // "British Indian Ocean Territory"), and the same shape recurs constantly across real
+  // country/territory lists (Niger/Nigeria, Congo/Republic of the Congo, Sudan/South Sudan,
+  // Korea/North Korea, Guinea/Guinea-Bissau, Ireland/Northern Ireland). Requiring a real word
+  // boundary on both sides rejects all of those while still matching genuine partial phrases
+  // ("Bachelor" inside "Bachelor's Degree"). Both sides must also be reasonably specific — a
+  // short, generic value like "no" is trivially a whole word inside far too many unrelated
+  // options and would otherwise be confidently wrong instead of just unmatched; genuine
+  // yes/no-shaped answers are already resolved by the bucket check above.
+  if (nv.length >= 4) {
     for (const opt of options) {
       const no = _norm(opt);
-      if (no && (no.includes(nv) || nv.includes(no))) return opt;
+      if (no.length >= 4 && (_wordBoundaryContains(no, nv) || _wordBoundaryContains(nv, no))) return opt;
     }
   }
 
@@ -285,6 +305,14 @@ function convertValue(el, value, sig) {
     for (const h of _collectHints(el)) {
       if (/[#_0-9][^0-9a-z]+[#_0-9]/i.test(h)) return { value: formatPhone(value, h), ok: true };
     }
+    // No explicit separator hint. A phone field with no formatting cue is commonly paired
+    // with a separate country-code selector and rejects anything but the bare local
+    // number — a stored value like "+919876543210" fails that field's "digits only"
+    // validation even though it works fine as a single combined phone box elsewhere. Default
+    // to bare digits, and drop a leading country-code prefix by keeping just the last 10
+    // (the standard local mobile/landline length in India, the US, the UK, and most others).
+    const bareDigits = String(value).replace(/\D/g, "");
+    if (bareDigits) return { value: bareDigits.length > 10 ? bareDigits.slice(-10) : bareDigits, ok: true };
   }
 
   return { value: value, ok: true };
@@ -297,5 +325,6 @@ if (typeof module !== "undefined" && module.exports) {
     formatDateToPattern,
     looksLikeDatePattern,
     formatPhone,
+    convertValue,
   };
 }

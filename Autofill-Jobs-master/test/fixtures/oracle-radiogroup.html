@@ -1,0 +1,59 @@
+<!doctype html>
+<html>
+<head><meta charset="utf-8" /><title>Oracle radiogroup label regression</title>
+<style>body{font-family:sans-serif;max-width:640px;margin:20px auto}#results{background:#111;color:#0f0;padding:12px;white-space:pre-wrap;font-family:monospace;font-size:12px}</style>
+</head>
+<body>
+  <h1>Oracle-style radiogroup (each radio's own aria-labelledby points at ITS option, not the group)</h1>
+
+  <div class="input-row input-row--radiogroup" role="radiogroup" aria-labelledby="q1-label">
+    <label id="q1-label"><span id="q1-text">Have you previously been employed by WSP?</span></label>
+    <div class="input-row__control-container">
+      <input type="radio" value="q1yes" id="q1-yes" name="q1" aria-labelledby="label-q1-yes">
+      <label class="apply-flow-input-radio" for="q1-yes"><span id="label-q1-yes">Yes</span></label>
+      <input type="radio" value="q1no" id="q1-no" name="q1" aria-labelledby="label-q1-no">
+      <label class="apply-flow-input-radio" for="q1-no"><span id="label-q1-no">No</span></label>
+    </div>
+  </div>
+
+  <div class="input-row input-row--radiogroup" role="radiogroup" aria-labelledby="q2-label">
+    <label id="q2-label"><span id="q2-text">Are you an Indian National?</span></label>
+    <div class="input-row__control-container">
+      <input type="radio" value="q2yes" id="q2-yes" name="q2" aria-labelledby="label-q2-yes">
+      <label class="apply-flow-input-radio" for="q2-yes"><span id="label-q2-yes">Yes</span></label>
+      <input type="radio" value="q2no" id="q2-no" name="q2" aria-labelledby="label-q2-no">
+      <label class="apply-flow-input-radio" for="q2-no"><span id="label-q2-no">No</span></label>
+    </div>
+  </div>
+
+  <pre id="results">running…</pre>
+
+  <script src="../../src/public/contentScripts/utils.js"></script>
+  <script src="../../src/public/contentScripts/signature.js"></script>
+  <script>
+    const log=[]; function out(m){log.push(m);document.getElementById("results").textContent=log.join("\n");}
+    const assert=(n,c)=>out((c?"PASS ":"FAIL ")+n);
+
+    const q1radio = document.getElementById('q1-yes');
+    const q2radio = document.getElementById('q2-yes');
+    const sig1 = generateSignature(q1radio);
+    const sig2 = generateSignature(q2radio);
+
+    assert("Q1 group label is the actual question, not 'Yes'", sig1.rawLabel.toLowerCase().includes('wsp'));
+    assert("Q2 group label is the actual question, not 'Yes'", sig2.rawLabel.toLowerCase().includes('indian'));
+    assert("Q1 and Q2 signatures do NOT collide", sig1.hash !== sig2.hash);
+
+    const optLabelYes = getOptionLabel(q1radio);
+    const optLabelNo = getOptionLabel(document.getElementById('q1-no'));
+    assert("Option label for q1-yes radio reads 'Yes' (sibling label[for] pattern)", optLabelYes.trim() === 'Yes');
+    assert("Option label for q1-no radio reads 'No' (sibling label[for] pattern)", optLabelNo.trim() === 'No');
+
+    const options1 = sig1.options;
+    out("Q1 rawLabel: " + JSON.stringify(sig1.rawLabel));
+    out("Q1 options: " + JSON.stringify(options1));
+    assert("Q1 signature options are ['Yes','No'], not numeric codes", JSON.stringify(options1) === JSON.stringify(['Yes','No']));
+
+    out("DONE");
+  </script>
+</body>
+</html>

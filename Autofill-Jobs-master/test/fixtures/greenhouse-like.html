@@ -59,6 +59,21 @@
     </fieldset>
   </form>
 
+  <!-- FORM C: same company applying again — identical wording, but a genuinely fresh set of
+       DOM elements (as a real second page load would produce), to test exact recall without
+       relying on re-processing elements already handled in this page session. -->
+  <form id="third-form" style="border-top:2px solid #ccc; margin-top:24px;">
+    <h2>Same company, second application</h2>
+    <label for="notice3">What is your notice period?</label>
+    <input id="notice3" name="notice" type="text" />
+
+    <fieldset id="auditor-c">
+      <legend>Have you been employed by our statutory auditor?</legend>
+      <label><input type="radio" name="auditor3" value="yes" /> Yes</label>
+      <label><input type="radio" name="auditor3" value="no" /> No</label>
+    </fieldset>
+  </form>
+
   <pre id="results">running…</pre>
 
   <!-- In-memory chrome.storage mock so the learn/recall loop actually persists here. -->
@@ -71,6 +86,7 @@
         const o = {}; if (key in store) o[key] = store[key]; return o;
       }
       window.chrome = {
+        runtime: { id: "test-extension-id" },
         storage: {
           local: {
             get: (k, cb) => cb(resolve(_local, k)),
@@ -131,12 +147,14 @@
       const bank = await getAllLearned();
       assert("learned bank now has 2 entries", Object.keys(bank).length === 2);
 
-      // --- Phase 3: same questions again -> exact recall ---
-      notice.value = ""; auditorNo.checked = false;
-      delete formA.__afjEngineRan;
-      await runLearningEngine(formA, "fixture", res);
-      assert("exact recall: notice period auto-filled", val("notice") === "1 month");
-      assert("exact recall: auditor answered 'No'", document.querySelector('input[name="auditor"][value="no"]').checked);
+      // --- Phase 3: same questions on a fresh set of elements (simulating a new page load /
+      // new application) -> exact recall. Deliberately does NOT reuse formA's elements: those
+      // are already marked processed for this page session (by design — see engine.js), so a
+      // real "does recall survive to a new application" test needs genuinely new DOM nodes.
+      const formC = document.getElementById("third-form");
+      await runLearningEngine(formC, "fixture", res);
+      assert("exact recall: notice period auto-filled", val("notice3") === "1 month");
+      assert("exact recall: auditor answered 'No'", document.querySelector('input[name="auditor3"][value="no"]').checked);
 
       // --- Phase 4: reworded question + different enum on second form -> fuzzy ---
       const formB = document.getElementById("second-form");

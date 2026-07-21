@@ -1,0 +1,122 @@
+<!doctype html>
+<html>
+<head><meta charset="utf-8" /><title>Embedding fallback end-to-end</title>
+<style>body{font-family:sans-serif;max-width:640px;margin:20px auto}#results{background:#111;color:#0f0;padding:12px;white-space:pre-wrap;font-family:monospace;font-size:12px}</style>
+</head>
+<body>
+  <h1>Embedding fallback: semantic match applied, qualifier gate blocks a dangerous high-similarity false positive</h1>
+  <form id="jobApplicationForm">
+    <!-- Reworded version of a question we'll pre-learn under different wording -->
+    <label for="q1">Are you or have you been employed by the firm's external auditor?</label>
+    <input id="q1" name="q1" type="text" />
+
+    <!-- Would score a HIGH mock similarity to a learned "Address Line 1" entry, but must
+         be blocked by the qualifier/digit safety gate regardless. -->
+    <label for="addr2">Address Line 2</label>
+    <input id="addr2" name="addr2" type="text" />
+
+    <!-- Unrelated field: must stay unfilled (low mock similarity to everything learned) -->
+    <label for="unrelated">Favorite Programming Language</label>
+    <input id="unrelated" name="unrelated" type="text" />
+  </form>
+
+  <pre id="results">running…</pre>
+
+  <script>
+    (function () {
+      const _local = {}, _sync = {};
+      function resolve(s, k){ if(k==null) return {...s}; if(Array.isArray(k)){const o={};k.forEach(x=>{if(x in s)o[x]=s[x]});return o;} const o={}; if(k in s)o[k]=s[k]; return o; }
+
+      // Deterministic FAKE embeddings (real semantic understanding isn't the point here —
+      // that's already validated separately against the real model in
+      // src/embedding-quality-check.mjs. This mock just needs controllable, known cosine
+      // similarities so the PIPELINE logic — matching, thresholding, the qualifier gate —
+      // can be verified precisely without needing the actual ~23MB model loaded.)
+      const VECTORS = {
+        "Have you been employed by our statutory auditor?": [1, 0],
+        "Are you or have you been employed by the firm's external auditor?": [0.95, 0.312], // cos ~0.95 vs the line above
+        "Address Line 1": [0, 1],
+        "Address Line 2": [0.01, 0.9999], // cos ~0.9999 vs Address Line 1 — must be gated anyway
+        "Favorite Programming Language": [-1, 0], // cos ~-1 or ~0 vs everything — must never match
+      };
+      function embedOne(text) { return VECTORS[text] || [0, 0.0001]; } // unknowns: near-zero, never matches
+
+      window.chrome = {
+        storage: {
+          local:{ get:(k,cb)=>cb(resolve(_local,k)), set:(o,cb)=>{Object.assign(_local,o);cb&&cb();} },
+          sync: { get:(k,cb)=>cb(resolve(_sync,k)),  set:(o,cb)=>{Object.assign(_sync,o);cb&&cb();} },
+        },
+        runtime: {
+          id: "test-extension-id",
+          sendMessage: (msg, cb) => {
+            if (msg.type === "AFJ_EMBED_QUERY") {
+              setTimeout(() => cb({ ok: true, embeddings: msg.texts.map(embedOne) }), 10);
+            }
+          },
+        },
+      };
+      window.__store = { local: _local, sync: _sync };
+    })();
+  </script>
+  <script src="../../src/public/contentScripts/utils.js"></script>
+  <script src="../../src/public/contentScripts/signature.js"></script>
+  <script src="../../src/public/contentScripts/learningStore.js"></script>
+  <script src="../../src/public/contentScripts/formatConvert.js"></script>
+  <script src="../../src/public/contentScripts/matcher.js"></script>
+  <script src="../../src/public/contentScripts/embedding.js"></script>
+  <script src="../../src/public/contentScripts/reviewPanel.js"></script>
+  <script src="../../src/public/contentScripts/engine.js"></script>
+  <script>
+    const log=[]; function out(m){log.push(m);document.getElementById("results").textContent=log.join("\n");}
+    const assert=(n,c)=>out((c?"PASS ":"FAIL ")+n);
+
+    (async function () {
+      const res = await getStorageDataSync();
+      res["Current Date"] = curDateStr();
+
+      // Pre-learn two answers under DIFFERENT wording than what's on the form, so the fast
+      // token-overlap pass genuinely finds nothing and the embedding fallback is what has
+      // to do the work.
+      const auditorSig = generateSignature(Object.assign(document.createElement('input'), { type: 'text' }));
+      const learnedAuditor = { ...auditorSig, rawLabel: "Have you been employed by our statutory auditor?",
+        tokens: sigLabelTokensSafe("Have you been employed by our statutory auditor?"),
+        hash: "learned-auditor-hash", fieldType: "text", options: [] };
+      await upsertLearnedField(learnedAuditor, "No", "manual");
+
+      const learnedAddr = { rawLabel: "Address Line 1", tokens: sigLabelTokensSafe("Address Line 1"),
+        hash: "learned-addr-hash", fieldType: "text", options: [] };
+      await upsertLearnedField(learnedAddr, "123 Example Street", "manual");
+
+      function sigLabelTokensSafe(s) {
+        // labelTokens isn't exported to window scope by name collision safety, but it's a
+        // plain global function in this classic-script context.
+        return labelTokens(s);
+      }
+
+      const form = document.getElementById('jobApplicationForm');
+      await runLearningEngine(form, "fixture", res);
+
+      // The fast pass won't find these (different wording / gated) — the embedding
+      // fallback runs fire-and-forget, so poll briefly for it to complete.
+      let waited = 0;
+      while (waited < 3000) {
+        await new Promise(r => setTimeout(r, 200));
+        waited += 200;
+        if (document.getElementById('q1').value) break;
+      }
+      await new Promise(r => setTimeout(r, 300)); // let the addr2/unrelated attempts also settle
+
+      assert("reworded auditor question filled via embedding fallback ('No')",
+        document.getElementById('q1').value === 'No');
+
+      assert("Address Line 2 NOT filled despite high mock similarity (qualifier gate)",
+        document.getElementById('addr2').value === '');
+
+      assert("unrelated field NOT filled (low similarity to everything learned)",
+        document.getElementById('unrelated').value === '');
+
+      out("DONE");
+    })().catch(e => out("ERROR " + (e && e.stack || e)));
+  </script>
+</body>
+</html>
