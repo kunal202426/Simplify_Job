@@ -1,0 +1,128 @@
+<!doctype html>
+<html>
+<head><meta charset="utf-8" /><title>Workday option-matching regression</title>
+<style>body{font-family:sans-serif;max-width:640px;margin:20px auto}#results{background:#111;color:#0f0;padding:12px;white-space:pre-wrap;font-family:monospace;font-size:12px}</style>
+</head>
+<body>
+  <h1>Real bug found live: "India" picked "British Indian Ocean Territory" on Workday</h1>
+  <p>workday.js has its own dropdown/listbox matching (afjWorkdayPickDropdownOption) and its
+  own virtualized-autocomplete matching (afjWorkdayClickVirtualizedOption) — both reimplemented
+  raw substring matching instead of routing through formatConvert.js's word-boundary-safe
+  matchOption(), the exact class of bug already fixed there once (India/Norway). This fixture
+  exercises workday.js's own functions directly, not the generic engine, since that's where
+  the bug actually lived.</p>
+
+  <!-- Workday's own button + listbox dropdown pattern, used by afjWorkdayPickDropdownOption.
+       Real Workday mounts the listbox fresh when a dropdown opens and unmounts it (not just
+       CSS-hides it) when another one opens — the listboxes below are built in JS on demand so
+       this fixture matches that, instead of pre-rendering both and toggling visibility. -->
+  <button data-automation-id="countryDropdown" id="country-trigger">Select country</button>
+  <button data-automation-id="genderDropdown" id="gender-trigger">Select gender</button>
+  <div id="listbox-slot"></div>
+
+  <!-- Workday's virtualized skills/discipline popup pattern, used by
+       afjWorkdayClickVirtualizedOption. Starts EMPTY on purpose — the row is added after a
+       delay to prove the polling fix actually waits instead of trying once and giving up. -->
+  <div class="ReactVirtualized__Grid__innerScrollContainer" id="grid"></div>
+
+  <pre id="results">running…</pre>
+
+  <script>
+    (function () {
+      const _local = {}, _sync = {};
+      function resolve(s, k){ if(k==null) return {...s}; if(Array.isArray(k)){const o={};k.forEach(x=>{if(x in s)o[x]=s[x]});return o;} const o={}; if(k in s)o[k]=s[k]; return o; }
+      window.chrome = { runtime: { id: "test-extension-id" }, storage: {
+        local:{ get:(k,cb)=>cb(resolve(_local,k)), set:(o,cb)=>{Object.assign(_local,o);cb&&cb();} },
+        sync: { get:(k,cb)=>cb(resolve(_sync,k)),  set:(o,cb)=>{Object.assign(_sync,o);cb&&cb();} } } };
+      window.__store = { local:_local, sync:_sync };
+    })();
+
+    // Both dropdown buttons just toggle their own listbox's visibility, and each option div
+    // records whether IT (specifically) was the one clicked — mirrors real Workday enough for
+    // afjWorkdayPickDropdownOption's click-to-open / click-the-option flow.
+    // Only one dropdown's listbox is ever mounted on real Workday at a time — opening one
+    // unmounts any other, which is what afjWorkdayPickDropdownOption's unscoped
+    // document-wide listbox lookup relies on.
+    const OPTIONS = {
+      country: ["British Indian Ocean Territory", "India", "Indonesia"],
+      gender: ["Male", "Female", "I don't wish to self-identify"],
+    };
+    function mountListbox(name) {
+      const slot = document.getElementById("listbox-slot");
+      slot.innerHTML = "";
+      const ul = document.createElement("ul");
+      ul.setAttribute("role", "listbox");
+      ul.setAttribute("tabindex", "-1");
+      for (const text of OPTIONS[name]) {
+        const li = document.createElement("li");
+        const div = document.createElement("div");
+        div.textContent = text;
+        div.addEventListener("click", () => { div.dataset.clicked = "1"; });
+        li.appendChild(div);
+        ul.appendChild(li);
+      }
+      slot.appendChild(ul);
+    }
+    document.getElementById("country-trigger").addEventListener("click", () => mountListbox("country"));
+    document.getElementById("gender-trigger").addEventListener("click", () => mountListbox("gender"));
+  </script>
+  <script src="../../src/public/contentScripts/utils.js"></script>
+  <script src="../../src/public/contentScripts/signature.js"></script>
+  <script src="../../src/public/contentScripts/learningStore.js"></script>
+  <script src="../../src/public/contentScripts/formatConvert.js"></script>
+  <script src="../../src/public/contentScripts/matcher.js"></script>
+  <script src="../../src/public/contentScripts/embedding.js"></script>
+  <script src="../../src/public/contentScripts/reviewPanel.js"></script>
+  <script src="../../src/public/contentScripts/engine.js"></script>
+  <script src="../../src/public/contentScripts/workday.js"></script>
+  <script>
+    const log=[]; function out(m){log.push(m);document.getElementById("results").textContent=log.join("\n");}
+    const assert=(n,c)=>out((c?"PASS ":"FAIL ")+n);
+    const clicked = (text) => {
+      for (const div of document.querySelectorAll("li div")) {
+        if (div.textContent.trim() === text && div.dataset.clicked === "1") return true;
+      }
+      return false;
+    };
+
+    (async function () {
+      // --- afjWorkdayPickDropdownOption: the real regression ---
+      const ok1 = await afjWorkdayPickDropdownOption("country", "India");
+      assert("country dropdown: picked exactly India", ok1 && clicked("India"));
+      assert("country dropdown: did NOT pick British Indian Ocean Territory",
+        !clicked("British Indian Ocean Territory"));
+
+      const ok2 = await afjWorkdayPickDropdownOption("gender", "Decline to self identify");
+      assert("gender dropdown: decline maps to Workday's own self-identify wording",
+        ok2 && clicked("I don't wish to self-identify"));
+
+      // --- afjWorkdayClickVirtualizedOption / afjWorkdayTypeIntoAutocomplete: word-boundary
+      // + the polling fix (grid starts empty, row arrives after a delay the OLD single
+      // sleep(1000) would have missed) ---
+      setTimeout(() => {
+        const grid = document.getElementById("grid");
+        const row1 = document.createElement("div");
+        row1.setAttribute("aria-label", "Java | Programming Language");
+        row1.innerHTML = "<div>Java</div>";
+        const row2 = document.createElement("div");
+        row2.setAttribute("aria-label", "JavaScript | Programming Language");
+        row2.innerHTML = "<div>JavaScript</div>";
+        grid.appendChild(row1);
+        grid.appendChild(row2);
+      }, 1500);
+
+      const picked = afjWorkdayClickVirtualizedOption.length; // sanity: function exists
+      let waited = 0, gotJava = false;
+      while (waited < 4000) {
+        await new Promise((r) => setTimeout(r, 200));
+        waited += 200;
+        gotJava = afjWorkdayClickVirtualizedOption("Java");
+        if (gotJava) break;
+      }
+      assert("virtualized picker: waited past the delayed render and matched Java", gotJava);
+
+      out("DONE");
+    })().catch((e) => out("ERROR " + (e && e.stack || e)));
+  </script>
+</body>
+</html>

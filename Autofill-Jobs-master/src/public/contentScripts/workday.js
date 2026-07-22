@@ -306,8 +306,14 @@ async function afjWorkdayFillTextField(fieldKey, profileKey, value, res) {
 }
 
 /** Workday's own dropdown/listbox pattern: click to open, then click the option whose text
- * best matches. "Decline to..." style answers are normalized to Workday's own "Decline"/
- * "I don't wish to..." wording, which otherwise wouldn't substring-match the stored value. */
+ * best matches — via the same word-boundary-safe matchOption() used everywhere else in the
+ * extension (formatConvert.js), not a raw substring test. A raw substring test here is what
+ * let "India" pick "British Indian Ocean Territory": "india" really is a substring of
+ * "indian", and the old loop had no word-boundary guard AND never stopped after the first
+ * match — every option that happened to match got clicked, so whichever one rendered last in
+ * the DOM silently won regardless of which was actually the intended pick. "Decline to..."
+ * style answers get one extra fallback for Workday's own "I don't wish to self-identify"
+ * wording that matchOption's synonym bucket doesn't already cover. */
 async function afjWorkdayPickDropdownOption(fieldKey, value) {
   const trigger = afjWorkdayFind(document, fieldKey, "button");
   if (!trigger) return false;
@@ -317,16 +323,15 @@ async function afjWorkdayPickDropdownOption(fieldKey, value) {
   const listbox = document.querySelector('ul[role="listbox"][tabindex="-1"]');
   if (!listbox) return false;
 
-  const normalized = String(value).toLowerCase().trim();
-  const wantsDecline = normalized.includes("decline");
-  for (const option of listbox.querySelectorAll("li div")) {
-    const text = option.textContent.toLowerCase();
-    const matches =
-      text.includes(normalized) ||
-      normalized.includes(text) ||
-      (wantsDecline && text.includes("self"));
-    if (matches) option.click();
+  const options = Array.from(listbox.querySelectorAll("li div"));
+  const texts = options.map((o) => o.textContent.trim());
+  let best = matchOption(value, texts);
+  if (!best && String(value).toLowerCase().includes("decline")) {
+    best = texts.find((t) => t.toLowerCase().includes("self"));
   }
+  if (!best) return false;
+
+  options[texts.indexOf(best)].click();
   await sleep(delays.short);
   trigger.blur();
   return true;
