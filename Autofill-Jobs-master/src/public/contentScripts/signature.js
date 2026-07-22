@@ -110,11 +110,38 @@ function sigIsRadio(el) {
   );
 }
 
+/** True if `node` is another radio/checkbox in the same named group as `el` — used to tell
+ * whether a text node sitting between two controls is genuinely ambiguous about which one
+ * it labels. */
+function _sigIsSameGroupControl(node, el) {
+  if (!node || node.nodeType !== 1) return false;
+  if ((node.tagName || "").toLowerCase() !== "input") return false;
+  const t = (node.getAttribute("type") || "").toLowerCase();
+  if (t !== "radio" && t !== "checkbox") return false;
+  return !!(el.name && node.name === el.name);
+}
+
+/** A sibling text node is only trustworthy as `el`'s own option label if it isn't
+ * "sandwiched" between `el` and ANOTHER control of the same group on its far side — e.g. in
+ * `Yes<input>No<input>`, the text "No" sits between the first input and the second, and
+ * could just as easily be read as the first input's trailing label or the second's leading
+ * one. Requiring the far side to NOT be a same-group control is what lets the first input
+ * correctly claim "Yes" (nothing competes with it there) instead of misreading the "No" that
+ * happens to be its own nextSibling but actually belongs to the option after it. */
+function _sigSafeSiblingText(textNode, el, farSide) {
+  if (!textNode || textNode.nodeType !== 3) return null;
+  const farNode = farSide === "next" ? textNode.nextSibling : textNode.previousSibling;
+  if (_sigIsSameGroupControl(farNode, el)) return null;
+  const t = textNode.textContent.replace(/\s+/g, " ").trim();
+  return t || null;
+}
+
 /**
  * The option label of a single radio/checkbox (e.g. "Yes") — its own wrapping label,
  * a sibling label associated via for="id" (a very common pattern where the visible label
- * is a sibling, not an ancestor, of the input), or adjacent text. Distinct from the group
- * question, which getFieldLabel() returns.
+ * is a sibling, not an ancestor, of the input), or adjacent text (checked on both sides,
+ * since "Yes <input>" and "<input> Yes" are both common hand-rolled patterns). Distinct
+ * from the group question, which getFieldLabel() returns.
  */
 function getOptionLabel(el) {
   if (!el) return "";
@@ -138,10 +165,21 @@ function getOptionLabel(el) {
   }
   const aria = (el.getAttribute("aria-label") || "").trim();
   if (aria) return aria;
-  // text immediately following the control
-  const sib = el.nextSibling;
-  if (sib && sib.nodeType === 3) {
-    const t = sib.textContent.replace(/\s+/g, " ").trim();
+
+  const next = el.nextSibling;
+  const prev = el.previousSibling;
+  const safeNext = _sigSafeSiblingText(next, el, "next");
+  if (safeNext) return safeNext;
+  const safePrev = _sigSafeSiblingText(prev, el, "prev");
+  if (safePrev) return safePrev;
+  // Neither side is unambiguous (a compact run with no differentiating edge at all) — fall
+  // back to whichever exists, next preferred to match this function's original behavior.
+  if (next && next.nodeType === 3) {
+    const t = next.textContent.replace(/\s+/g, " ").trim();
+    if (t) return t;
+  }
+  if (prev && prev.nodeType === 3) {
+    const t = prev.textContent.replace(/\s+/g, " ").trim();
     if (t) return t;
   }
   return (el.value || "").trim();

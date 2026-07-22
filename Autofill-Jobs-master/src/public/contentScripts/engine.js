@@ -58,10 +58,16 @@ function afjReadValue(el, sig) {
   }
   if (el.tagName.toLowerCase() === "select") {
     const opt = el.options[el.selectedIndex];
-    // Treat placeholder first option ("", "Select...") as empty.
+    // Treat placeholder first option as empty. A blank value ("") is itself a strong signal
+    // regardless of wording — most placeholder options are <option value="">...</option> —
+    // and the text check strips leading/trailing dashes/punctuation before testing, since
+    // "-- Select --" / "- Choose One -" (dash-wrapped placeholders) are at least as common
+    // as a bare "Select..." and the old check only matched text starting with the word
+    // itself, silently treating a dash-wrapped placeholder as an already-answered value.
     if (!opt || el.selectedIndex <= 0) {
-      const t = opt ? (opt.textContent || "").trim() : "";
-      if (!t || /^(select|choose|please)/i.test(t)) return "";
+      const raw = opt ? (opt.textContent || "").trim() : "";
+      const cleaned = raw.replace(/^[-–—\s]+|[-–—\s]+$/g, "");
+      if (!opt || opt.value === "" || !cleaned || /^(select|choose|please|pick)\b/i.test(cleaned)) return "";
     }
     return (opt.textContent || opt.value || "").trim();
   }

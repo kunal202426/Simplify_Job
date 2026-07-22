@@ -1,0 +1,93 @@
+<!doctype html>
+<html>
+<head><meta charset="utf-8" /><title>Detail-reading edge cases</title>
+<style>body{font-family:sans-serif;max-width:640px;margin:20px auto}#results{background:#111;color:#0f0;padding:12px;white-space:pre-wrap;font-family:monospace;font-size:12px}</style>
+</head>
+<body>
+  <h1>Edge cases in reading a field's actual current state/label, not the matching logic</h1>
+  <p>Found by re-tracing engine.js/signature.js line by line, not from a live-site report:
+  a dash-wrapped select placeholder ("-- Select --") was read as an already-answered value,
+  and a radio/checkbox option label placed BEFORE the control ("Yes &lt;input&gt;") was never
+  read at all (only the text-after pattern was checked).</p>
+
+  <!-- Dash-wrapped placeholder, still selected by default (selectedIndex 0) -->
+  <label for="country">Country</label>
+  <select id="country">
+    <option value="">-- Select --</option>
+    <option value="IN">India</option>
+    <option value="US">United States</option>
+  </select>
+
+  <!-- A select whose real first option happens to be a genuine value, not a placeholder —
+       must NOT be misread as empty just because selectedIndex is 0. -->
+  <label for="gender">Gender</label>
+  <select id="gender">
+    <option value="M">Male</option>
+    <option value="F">Female</option>
+  </select>
+
+  <!-- Option label given as inline text BEFORE the input, no wrapping <label>, no for= -->
+  <fieldset>
+    <legend>Are you legally authorized to work in this country?</legend>
+    Yes<input type="radio" name="authorized" id="auth-yes" />
+    No<input type="radio" name="authorized" id="auth-no" />
+  </fieldset>
+
+  <pre id="results">running…</pre>
+
+  <script>
+    (function () {
+      const _local = {}, _sync = {};
+      function resolve(s, k){ if(k==null) return {...s}; if(Array.isArray(k)){const o={};k.forEach(x=>{if(x in s)o[x]=s[x]});return o;} const o={}; if(k in s)o[k]=s[k]; return o; }
+      window.chrome = { runtime: { id: "test-extension-id" }, storage: {
+        local:{ get:(k,cb)=>cb(resolve(_local,k)), set:(o,cb)=>{Object.assign(_local,o);cb&&cb();} },
+        sync: { get:(k,cb)=>cb(resolve(_sync,k)),  set:(o,cb)=>{Object.assign(_sync,o);cb&&cb();} } } };
+      window.__store = { local:_local, sync:_sync };
+    })();
+  </script>
+  <script src="../../src/public/contentScripts/utils.js"></script>
+  <script src="../../src/public/contentScripts/signature.js"></script>
+  <script src="../../src/public/contentScripts/learningStore.js"></script>
+  <script src="../../src/public/contentScripts/formatConvert.js"></script>
+  <script src="../../src/public/contentScripts/matcher.js"></script>
+  <script src="../../src/public/contentScripts/embedding.js"></script>
+  <script src="../../src/public/contentScripts/reviewPanel.js"></script>
+  <script src="../../src/public/contentScripts/engine.js"></script>
+  <script>
+    const log=[]; function out(m){log.push(m);document.getElementById("results").textContent=log.join("\n");}
+    const assert=(n,c)=>out((c?"PASS ":"FAIL ")+n);
+
+    (async function () {
+      // --- afjReadValue: dash-wrapped placeholder must read as EMPTY, not "-- Select --" ---
+      const countryEl = document.getElementById("country");
+      const countrySig = generateSignature(countryEl);
+      assert("'-- Select --' (dash-wrapped placeholder) reads as empty, not a real value",
+        afjReadValue(countryEl, countrySig) === "");
+
+      // --- afjReadValue: a real first option (no placeholder at all) must NOT be misread as empty ---
+      const genderEl = document.getElementById("gender");
+      const genderSig = generateSignature(genderEl);
+      assert("a select whose real first option is a genuine value reads as that value, not empty",
+        afjReadValue(genderEl, genderSig) === "Male");
+
+      // --- getOptionLabel via generateSignature: option text placed BEFORE the input ---
+      const yesEl = document.getElementById("auth-yes");
+      const noEl = document.getElementById("auth-no");
+      assert("radio option label placed BEFORE the input ('Yes<input>') is read correctly",
+        getOptionLabel(yesEl) === "Yes");
+      assert("second radio in the same group also reads its preceding text correctly",
+        getOptionLabel(noEl) === "No");
+
+      // --- end-to-end: the whole engine pass should now fill the country field correctly
+      // instead of treating the dash-placeholder as an already-filled value and skipping it ---
+      await runLearningEngine(document.body, "example.com", { "Location (Country)": "India" });
+      assert("engine pass: Country actually gets filled (was skipped as 'already answered')",
+        countryEl.value === "IN");
+      assert("engine pass: Gender (real default, no placeholder) is left as pre-filled Male, not overwritten",
+        genderEl.value === "M");
+
+      out("DONE");
+    })().catch((e) => out("ERROR " + (e && e.stack || e)));
+  </script>
+</body>
+</html>
