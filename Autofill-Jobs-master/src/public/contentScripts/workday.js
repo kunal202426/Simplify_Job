@@ -126,32 +126,39 @@ async function afjWorkdayLoadResumeDetails() {
   return typeof raw === "string" ? JSON.parse(raw) : raw;
 }
 
-/** Picks the option whose visible text contains `needle` out of Workday's virtualized-list
- * autocomplete popup (used by both the skills picker and the discipline/field-of-study
- * picker) — the popup renders as a react-window/react-virtualized grid, not a plain list, so
- * only the currently-rendered rows are queryable at all. A "|"-separated label (skills
- * sometimes render as "Python | Programming Language") is treated as a fallback candidate
- * rather than a first choice, since an exact/plain label match should win when one exists. */
+/** Picks the option whose visible text best matches `needle` out of Workday's
+ * virtualized-list autocomplete popup (used by both the skills picker and the
+ * discipline/field-of-study picker) — the popup renders as a react-window/react-virtualized
+ * grid, not a plain list, so only the currently-rendered rows are queryable at all. Matching
+ * goes through the same word-boundary-safe matchOption() the rest of the extension uses
+ * (formatConvert.js) rather than a raw substring test — a raw test previously let a search
+ * for "India" click "Indian Institute of Technology" or similar, since "india" really is a
+ * substring of "indian". A "|"-separated label (skills sometimes render as "Python |
+ * Programming Language") has its category suffix stripped before matching, so a plain
+ * "Python" search still lines up with matchOption's exact-match step. Returns true only when
+ * a row was actually clicked, so the caller can retry while the popup is still rendering. */
 function afjWorkdayClickVirtualizedOption(needle) {
   const grid = document.querySelector(".ReactVirtualized__Grid__innerScrollContainer");
-  if (!grid) return;
-  const target = needle.toLowerCase();
-  let fallback = null;
-  for (const row of grid.children) {
-    const label = (row.getAttribute("aria-label") || "").toLowerCase();
-    if (!label.includes(target)) continue;
-    if (label.includes("|")) {
-      fallback = row;
-      continue;
-    }
-    row.children[0].click();
-    return;
-  }
-  if (fallback) fallback.click();
+  if (!grid || !grid.children.length) return false;
+
+  const rows = Array.from(grid.children);
+  const plainLabels = rows.map((row) => (row.getAttribute("aria-label") || "").split("|")[0].trim());
+  const best = matchOption(needle, plainLabels);
+  if (!best) return false;
+
+  const idx = plainLabels.indexOf(best);
+  if (idx === -1) return false;
+  rows[idx].children[0].click();
+  return true;
 }
 
-/** Types into a virtualized-list autocomplete input and waits for its popup to render before
- * picking the matching option — shared by the skills picker and the discipline field. */
+/** Types into a virtualized-list autocomplete input and polls for its popup to render before
+ * picking the matching option — shared by the skills picker and the discipline field. Polls
+ * rather than a single fixed wait: a fixed wait short enough for the first search of a batch
+ * (the grid may already be warm) was too short whenever a later search needed a fresh
+ * server-side lookup, which silently dropped that entry — it never got clicked, and the loop
+ * just moved on to the next one with no retry and no signal that anything had gone wrong.
+ * Returns whether an option was actually picked. */
 async function afjWorkdayTypeIntoAutocomplete(input, value) {
   input.focus();
   await sleep(200);
@@ -162,8 +169,12 @@ async function afjWorkdayTypeIntoAutocomplete(input, value) {
   await sleep(200);
   input.dispatchEvent(keyDownEvent);
   input.dispatchEvent(keyUpEvent);
-  await sleep(1000);
-  afjWorkdayClickVirtualizedOption(value);
+
+  for (let waited = 0; waited < 3000; waited += 300) {
+    await sleep(300);
+    if (afjWorkdayClickVirtualizedOption(value)) return true;
+  }
+  return false;
 }
 
 /** Adds each parsed resume skill one at a time through Workday's multiselect chip input —
@@ -184,7 +195,8 @@ async function afjWorkdaySelectSkills() {
       input = opener.children[0] && opener.children[0].children[0];
     }
     if (!input) continue;
-    await afjWorkdayTypeIntoAutocomplete(input, skill);
+    const added = await afjWorkdayTypeIntoAutocomplete(input, skill);
+    if (!added) console.warn(`AutofillJobs (workday): couldn't find "${skill}" in the skills picker`);
   }
   await sleep(delays.short);
   return true;
