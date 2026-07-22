@@ -261,6 +261,19 @@ function _detectDatePattern(el, sig) {
     const cand = (h.match(/[ymd]{1,4}[\/\-.][ymd\/\-.]+/i) || [])[0] || h;
     if (looksLikeDatePattern(cand)) return cand.trim();
   }
+  // The expected format is very often spelled out right in the visible label itself
+  // ("Start Date (MM/YYYY)", "Graduation Date (mm/dd/yyyy)") rather than in an attribute —
+  // sig was always passed in here but never actually read, so that common case was silently
+  // skipped. Unlike the attribute hints above, this must NOT fall back to testing the WHOLE
+  // label when no separator-containing match is found in it: ordinary English words
+  // routinely contain incidental "mm"/"dd"-shaped substrings ("address", "middle",
+  // "committee", even "email" itself contains a lone "m") that looksLikeDatePattern's loose
+  // thresholds misread as a date format once given free rein over an entire label — only a
+  // real slash/dash/dot-separated run extracted FROM the label is trustworthy here.
+  if (sig && sig.rawLabel) {
+    const m = sig.rawLabel.match(/[ymd]{1,4}[\/\-.][ymd\/\-.]+/i);
+    if (m && looksLikeDatePattern(m[0])) return m[0].trim();
+  }
   // native inputs
   const type = (el.getAttribute && (el.getAttribute("type") || "")).toLowerCase();
   if (type === "month") return "yyyy-mm";

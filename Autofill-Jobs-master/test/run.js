@@ -199,6 +199,27 @@ eq("2022-06 -> June 2022", fmt.formatDateToPattern(fmt.parseCanonicalDate("2022-
 eq("dd/mm/yyyy canonical -> mm/dd/yyyy", fmt.formatDateToPattern(fmt.parseCanonicalDate("06/07/2022"), "mm/dd/yyyy"), "07/06/2022");
 eq("year only preserved", fmt.formatDateToPattern(fmt.parseCanonicalDate("2024"), "yyyy"), "2024");
 
+console.log("\n# format: date pattern hint read from the field's own label text, not just its attributes");
+const noAttrDateEl = { getAttribute: () => null };
+eq("'Graduation Date (MM/YYYY)' label hint converts Jun 2022 -> 06/2022",
+  fmt.convertValue(noAttrDateEl, "Jun 2022", { fieldType: "text", rawLabel: "Graduation Date (MM/YYYY)" }).value,
+  "06/2022");
+eq("'Expected Start Date (dd/mm/yyyy)' label hint converts a stored date correctly",
+  fmt.convertValue(noAttrDateEl, "26/04/2004", { fieldType: "text", rawLabel: "Expected Start Date (dd/mm/yyyy)" }).value,
+  "26/04/2004");
+eq("a label with no date-shaped hint at all still falls through untouched (no false positive)",
+  fmt.convertValue(noAttrDateEl, "Software Engineer", { fieldType: "text", rawLabel: "Employer Name" }).value,
+  "Software Engineer");
+eq("'Email Address' is not misread as a date pattern (real regression: 'email' contains 'm', 'address' contains 'dd')",
+  fmt.convertValue(noAttrDateEl, "ada@example.com", { fieldType: "text", rawLabel: "Email Address *" }).value,
+  "ada@example.com");
+eq("'Middle Name' is not misread as a date pattern ('middle' contains 'dd')",
+  fmt.convertValue(noAttrDateEl, "Grace", { fieldType: "text", rawLabel: "Middle Name" }).value,
+  "Grace");
+eq("'Committee Reference' is not misread as a date pattern ('committee' contains 'mm')",
+  fmt.convertValue(noAttrDateEl, "Some Committee", { fieldType: "text", rawLabel: "Committee Reference" }).value,
+  "Some Committee");
+
 console.log("\n# format: phone separators");
 eq("digits grouped to hint", fmt.formatPhone("1234567890", "___-___-____"), "123-456-7890");
 eq("strips existing separators first", fmt.formatPhone("(123) 456-7890", "###.###.####"), "123.456.7890");
