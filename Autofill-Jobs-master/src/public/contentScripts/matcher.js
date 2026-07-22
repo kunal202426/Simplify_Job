@@ -9,15 +9,20 @@
                 fields it covers, and should win over a learned answer that may predate a
                 later profile edit (e.g. you updated your address after once manually typing
                 an old one into an identically-labelled field on some other site).
-    2. exact  — signature hash present in the learned bank (instant, no computation).
-                Reached only for fields profile doesn't cover — custom compliance questions,
-                notice period, etc. — where the learned answer is authoritative.
-    3. fuzzy  — token-overlap against the learned bank above a threshold, gated on
-                field-type compatibility and, for choice fields, live-option availability
-    4. none   — leave empty; the engine flags it for manual input and learns the answer
+    2. exact       — signature hash present in the learned bank (instant, no computation).
+                     Reached only for fields profile doesn't cover — custom compliance
+                     questions, notice period, etc. — where the learned answer is authoritative.
+    3. compliance  — a small curated set of recurring compliance-question defaults (e.g.
+                     Workday's "previously employed by <Company>?") that embed a variable
+                     like the employer's own name, so they can never exact-hash match across
+                     companies. Checked before fuzzy so a reliable default doesn't lose to a
+                     Jaccard guess, and works from the very first time the question is seen.
+    4. fuzzy       — token-overlap against the learned bank above a threshold, gated on
+                     field-type compatibility and, for choice fields, live-option availability
+    5. none        — leave empty; the engine flags it for manual input and learns the answer
 
   Returns { value, source, confidence, entry }. `source` is one of
-  "learned-exact" | "profile" | "fuzzy-matched" | "none".
+  "learned-exact" | "profile" | "compliance-default" | "fuzzy-matched" | "none".
 
   Pure — no DOM, no chrome.* — so it is unit-testable in Node.
 */
@@ -177,6 +182,38 @@ function matchProfile(sig, res) {
   return best;
 }
 
+/* ---------------- compliance-question defaults ---------------- */
+
+// A handful of yes/no questions recur, reworded slightly, on nearly every ATS — most
+// prominently Workday's "have you previously been employed by <Company> or engaged as a
+// contingent resource?" question, which embeds the employer's OWN name in its wording. That
+// name changes on every tenant, so this question can never exact-hash match across
+// companies, and without a curated default it sits unanswered on every brand-new tenant
+// until (if ever) a fuzzy match against a differently-worded answer from some other company
+// happens to clear the similarity threshold. "No" is the overwhelmingly common truthful
+// answer for a normal applicant; a real former/contingent employee still sees the field
+// filled and flagged like any other match, and can correct it the same way.
+const COMPLIANCE_DEFAULTS = [
+  {
+    label: "previously employed / contingent worker",
+    test: (t) =>
+      (t.has("previously") && t.has("employed")) ||
+      (t.has("contingent") && (t.has("worker") || t.has("resource"))) ||
+      (t.has("former") && t.has("employee")),
+    value: "No",
+  },
+];
+
+function matchComplianceDefault(sig) {
+  if (!sig || !CHOICELIKE.has(sig.fieldType)) return null;
+  const tokenSet = _tset(sig.tokens);
+  if (!tokenSet.size) return null;
+  for (const rule of COMPLIANCE_DEFAULTS) {
+    if (rule.test(tokenSet)) return { value: rule.value, label: rule.label };
+  }
+  return null;
+}
+
 /* ---------------- fuzzy learned matching ---------------- */
 
 /**
@@ -222,12 +259,18 @@ function matchField(sig, res, bank, optionMatcher) {
     const e = bank[sig.hash];
     return { value: e.value, source: "learned-exact", confidence: 1, entry: e };
   }
-  // 3. fuzzy learned
+  // 3. compliance-question default — a curated rule beats a Jaccard guess from the learned
+  // bank, and doesn't require ever having filled this exact question before.
+  const compliance = matchComplianceDefault(sig);
+  if (compliance) {
+    return { value: compliance.value, source: "compliance-default", confidence: 1 };
+  }
+  // 4. fuzzy learned
   const fuzzy = matchLearned(sig, bank, optionMatcher);
   if (fuzzy) {
     return { value: fuzzy.value, source: "fuzzy-matched", confidence: fuzzy.confidence, entry: fuzzy.entry };
   }
-  // 4. none
+  // 5. none
   return { value: null, source: "none", confidence: 0 };
 }
 
@@ -239,7 +282,9 @@ if (typeof module !== "undefined" && module.exports) {
     fieldTypesCompatible,
     matchProfile,
     matchLearned,
+    matchComplianceDefault,
     matchField,
     PROFILE_MATCHERS,
+    COMPLIANCE_DEFAULTS,
   };
 }

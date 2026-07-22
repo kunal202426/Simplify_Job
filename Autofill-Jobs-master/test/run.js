@@ -118,6 +118,38 @@ eq("Address Line 2 gets no profile match", matcher.matchProfile(line2Sig, profil
 eq("Address Line 3 gets no profile match", matcher.matchProfile(line3Sig, profileRes), null);
 ok("Address Line 1 - Local still gets a profile match", matcher.matchProfile(line1LocalSig, profileRes) !== null);
 
+console.log("\n# compliance-question defaults (recurring 'previously employed by <Company>' questions)");
+const wellsFargoSig = {
+  hash: "wf1", fieldType: "radio",
+  tokens: sig.labelTokens("Have you previously been employed by Wells Fargo or engaged as a contingent resource?"),
+  options: ["Yes", "No"],
+};
+eq("Wells Fargo phrasing defaults to No with no learned data at all",
+  matcher.matchField(wellsFargoSig, {}, {}, fmt.matchOption).value, "No");
+eq("...source is compliance-default, not a lucky fuzzy guess",
+  matcher.matchField(wellsFargoSig, {}, {}, fmt.matchOption).source, "compliance-default");
+
+const citiSig = {
+  hash: "citi1", fieldType: "radio",
+  tokens: sig.labelTokens("Have you previously been employed by Citigroup or engaged as a contingent worker?"),
+  options: ["Yes", "No"],
+};
+eq("the SAME rule fires for a different employer's name (Citigroup vs Wells Fargo)",
+  matcher.matchField(citiSig, {}, {}, fmt.matchOption).value, "No");
+
+const priorLearnedBank = {};
+priorLearnedBank["wf1"] = { value: "Yes", fieldType: "radio", tokens: wellsFargoSig.tokens, optionsSeen: [] };
+eq("an exact-hash learned correction (same employer, manually flipped to Yes) still wins",
+  matcher.matchField(wellsFargoSig, {}, priorLearnedBank, fmt.matchOption).value, "Yes");
+
+const unrelatedEmployedSig = {
+  hash: "u1", fieldType: "text",
+  tokens: sig.labelTokens("Current Employer"),
+  options: [],
+};
+eq("an unrelated employment question is not swept up by the compliance default",
+  matcher.matchComplianceDefault(unrelatedEmployedSig), null);
+
 console.log("\n# profile matching");
 const res = { "Email": "a@b.com", "First Name": "Ada", "Phone": "123", "LinkedIn": "u" };
 eq("email field -> profile email",
