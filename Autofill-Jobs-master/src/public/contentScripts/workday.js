@@ -288,8 +288,23 @@ async function afjWorkdayFillDiscipline(value) {
   return true;
 }
 
-/** Fills a plain text/date input, or defers to the discipline-specific autocomplete flow
- * when the field turns out to be that one despite matching a plain <input> query. */
+// Fields that look like a plain text input but are actually Workday's own virtualized-list
+// search-and-select autocomplete (School/University, same widget family as the skills
+// picker and Discipline) — a raw setNativeValue() write here leaves text sitting in the box
+// with nothing ever actually searched or selected behind it. Real bug found live: "Vellore
+// Institute of Technology" written in, "No Items" showing underneath, because no genuine
+// search ever ran — afjWorkdayFind already resolves to the right interactive input (the
+// text visibly lands in the correct box), the bug was purely in HOW it got filled after
+// that. Routing it through the same type-and-click-the-matching-result flow the skills
+// picker already proved out means a real Workday search runs — which is also why this can
+// fix the case where the profile's exact wording ("Vellore Institute of Technology") isn't
+// itself an entry in a given tenant's institution database but a partial/fuzzy match against
+// it (e.g. "VIT University") is: a genuine search can surface that; a raw value write never
+// could.
+const AFJ_WORKDAY_AUTOCOMPLETE_PROFILE_KEYS = new Set(["School"]);
+
+/** Fills a plain text/date input, or defers to the virtualized-autocomplete flow when the
+ * field turns out to be one of those despite matching a plain <input> query. */
 async function afjWorkdayFillTextField(fieldKey, profileKey, value, res) {
   const input = afjWorkdayFind(document, fieldKey, "input");
   if (!input) return false;
@@ -299,6 +314,9 @@ async function afjWorkdayFillTextField(fieldKey, profileKey, value, res) {
   }
   if (profileKey === "Discipline") {
     return afjWorkdayFillDiscipline(value);
+  }
+  if (AFJ_WORKDAY_AUTOCOMPLETE_PROFILE_KEYS.has(profileKey)) {
+    return afjWorkdayTypeIntoAutocomplete(input, value);
   }
 
   setNativeValue(input, value);

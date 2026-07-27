@@ -25,6 +25,16 @@
        delay to prove the polling fix actually waits instead of trying once and giving up. -->
   <div class="ReactVirtualized__Grid__innerScrollContainer" id="grid"></div>
 
+  <!-- "School or University" is the SAME virtualized search-and-select widget as
+       Discipline/Skills despite looking like a plain text input — real bug found live: it
+       was filled via a raw setNativeValue() write instead, leaving text sitting in the box
+       with nothing actually searched/selected, showing "No Items" on the real page. Reuses
+       the #grid element above (cleared and repopulated) rather than adding a second one,
+       since afjWorkdayClickVirtualizedOption's lookup is unscoped and — matching real
+       Workday, where only one virtualized popup is ever mounted at a time — this fixture
+       keeps that invariant true instead of creating an artificial collision. -->
+  <input id="school-input" data-automation-id="schoolName" type="text" />
+
   <pre id="results">running…</pre>
 
   <script>
@@ -120,6 +130,40 @@
         if (gotJava) break;
       }
       assert("virtualized picker: waited past the delayed render and matched Java", gotJava);
+
+      // --- afjWorkdayFillTextField routing "School" through the real search-and-select
+      // flow instead of a raw setNativeValue() write. Note on scope: matchOption() requires
+      // some real shared wording between the typed value and a candidate option (exact /
+      // bucket / word-boundary-containment / token-overlap) — it deliberately does NOT
+      // guess across a pure acronym gap with zero shared words ("Vellore Institute of
+      // Technology" vs "VIT University" share none), since a matcher willing to do that
+      // would risk confidently clicking the WRONG institution elsewhere. This fixture tests
+      // what the fix actually claims: a genuine search-and-select now runs (and correctly
+      // picks a result that legitimately overlaps in wording), not the raw literal write
+      // the old code did — closing that acronym gap specifically would need a separate
+      // alias/learning mechanism this fix does not add. ---
+      const grid = document.getElementById("grid");
+      grid.innerHTML = "";
+      const schoolRow = document.createElement("div");
+      const schoolOptionText = "Vellore Institute of Technology, Chennai Campus";
+      schoolRow.setAttribute("aria-label", schoolOptionText);
+      schoolRow.innerHTML = `<div>${schoolOptionText}</div>`;
+      // Real Workday updates the search box's own value as a side effect of its selection
+      // handler when a result is clicked — simulated here since this fixture has no real
+      // React app behind it to do that on its own.
+      schoolRow.addEventListener("click", () => {
+        document.getElementById("school-input").value = schoolOptionText;
+      });
+      grid.appendChild(schoolRow);
+
+      const schoolFilled = await afjWorkdayFillTextField(
+        "schoolName", "School", "Vellore Institute of Technology", {}
+      );
+      const schoolInput = document.getElementById("school-input");
+      assert("School field: afjWorkdayFillTextField reports success",
+        schoolFilled === true);
+      assert("School field: a real search ran and selected the matching institution, not a raw literal write",
+        schoolInput.value === schoolOptionText);
 
       out("DONE");
     })().catch((e) => out("ERROR " + (e && e.stack || e)));
