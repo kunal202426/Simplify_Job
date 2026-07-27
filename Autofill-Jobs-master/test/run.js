@@ -150,6 +150,71 @@ const unrelatedEmployedSig = {
 eq("an unrelated employment question is not swept up by the compliance default",
   matcher.matchComplianceDefault(unrelatedEmployedSig), null);
 
+console.log("\n# compliance defaults on free-text fields (real bug: Workday stage 'Application Questions' wasn't even attempted, and even once it is, these render as textareas expecting 'NA', not a select)");
+const pwcEverEmployedSig = {
+  hash: "pwc1", fieldType: "textarea",
+  tokens: sig.labelTokens("Have you ever applied, interviewed, received an offer, or been employed with PwC or its predecessor firms?"),
+  options: [],
+};
+eq("'have you EVER been employed with <Company>' (not just 'previously') resolves via the same rule",
+  matcher.matchComplianceDefault(pwcEverEmployedSig).value, "NA");
+
+const nonCompeteSig = {
+  hash: "pwc2", fieldType: "textarea",
+  tokens: sig.labelTokens("Are you subject to a non-competition or other agreement, or aware of other circumstances, that would preclude or restrict your employment with PwC?"),
+  options: [],
+};
+eq("non-competition/restrictive-agreement question defaults to NA on a text field",
+  matcher.matchComplianceDefault(nonCompeteSig).value, "NA");
+
+const engagementTeamSig = {
+  hash: "pwc3", fieldType: "textarea",
+  tokens: sig.labelTokens("Within the last 24 months, have you worked with a PwC engagement team as a client?"),
+  options: [],
+};
+eq("'worked with the company's own engagement team as a client' defaults to NA",
+  matcher.matchComplianceDefault(engagementTeamSig).value, "NA");
+
+const relatedToPartnerSig = {
+  hash: "pwc4", fieldType: "textarea",
+  tokens: sig.labelTokens("Are you related to a PwC partner, principal, or employee?"),
+  options: [],
+};
+eq("nepotism disclosure ('related to a partner/employee') defaults to NA",
+  matcher.matchComplianceDefault(relatedToPartnerSig).value, "NA");
+
+const thirdPartyLaborSig = {
+  hash: "pwc5", fieldType: "select",
+  tokens: sig.labelTokens("Are you currently working, or have you worked, as third party labor or an independent contractor to PwC?"),
+  options: ["Yes", "No"],
+};
+eq("third-party labor / independent contractor defaults to No on a choice field (different value than the text-field 'NA' default)",
+  matcher.matchComplianceDefault(thirdPartyLaborSig).value, "No");
+
+const visaSponsorshipSig = {
+  hash: "pwc6", fieldType: "select",
+  tokens: sig.labelTokens("Do you now, or will you in the future, need PwC to sponsor your visa or work authorisation to be eligible to work in the country / territory in which this position is located?"),
+  options: ["Yes", "No"],
+};
+eq("visa/work-authorization sponsorship needed defaults to No",
+  matcher.matchComplianceDefault(visaSponsorshipSig).value, "No");
+
+const careerBreakSig = {
+  hash: "pwc7", fieldType: "select",
+  tokens: sig.labelTokens("Have you recently taken a break from your career for personal or professional reasons?"),
+  options: ["Yes", "No"],
+};
+eq("recent career break defaults to No",
+  matcher.matchComplianceDefault(careerBreakSig).value, "No");
+
+const legallyAuthorizedSig = {
+  hash: "pwc8", fieldType: "select",
+  tokens: sig.labelTokens("Are you legally authorised to work in the country / territory in which this position is located?"),
+  options: ["Yes", "No"],
+};
+eq("legally authorized to work defaults to Yes (opposite polarity from the other rules)",
+  matcher.matchComplianceDefault(legallyAuthorizedSig).value, "Yes");
+
 console.log("\n# profile matching");
 const res = { "Email": "a@b.com", "First Name": "Ada", "Phone": "123", "LinkedIn": "u" };
 eq("email field -> profile email",

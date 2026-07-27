@@ -184,32 +184,87 @@ function matchProfile(sig, res) {
 
 /* ---------------- compliance-question defaults ---------------- */
 
-// A handful of yes/no questions recur, reworded slightly, on nearly every ATS — most
-// prominently Workday's "have you previously been employed by <Company> or engaged as a
-// contingent resource?" question, which embeds the employer's OWN name in its wording. That
-// name changes on every tenant, so this question can never exact-hash match across
-// companies, and without a curated default it sits unanswered on every brand-new tenant
-// until (if ever) a fuzzy match against a differently-worded answer from some other company
-// happens to clear the similarity threshold. "No" is the overwhelmingly common truthful
-// answer for a normal applicant; a real former/contingent employee still sees the field
-// filled and flagged like any other match, and can correct it the same way.
+// A whole family of compliance questions recur, reworded slightly (and with the employer's
+// own name swapped in) on nearly every large-company ATS — Workday tenants especially.
+// Real example that motivated broadening this beyond the original single rule (PwC, but the
+// exact same shape recurs everywhere): "Have you ever applied, interviewed, received an
+// offer, or been employed with PwC or its predecessor firms?", "Are you subject to a
+// non-competition or other agreement... that would preclude or restrict your employment
+// with PwC?", "Within the last 24 months, have you worked with a PwC engagement team as a
+// client?", "Are you related to a PwC partner, principal, or employee?" — every one of these
+// embeds the company name, so none can ever exact-hash match across tenants, and every one
+// of them rendered as a free-text field expecting "NA"/"No", not a select/radio. Each rule
+// below carries both a choice-field answer and a text-field answer since the same underlying
+// question shows up as either depending on the ATS.
 const COMPLIANCE_DEFAULTS = [
   {
     label: "previously employed / contingent worker",
     test: (t) =>
       (t.has("previously") && t.has("employed")) ||
+      (t.has("ever") && t.has("employed")) ||
       (t.has("contingent") && (t.has("worker") || t.has("resource"))) ||
       (t.has("former") && t.has("employee")),
-    value: "No",
+    choiceValue: "No",
+    textValue: "NA",
+  },
+  {
+    label: "non-compete / restrictive agreement",
+    test: (t) =>
+      (t.has("non") && (t.has("compete") || t.has("competition"))) ||
+      (t.has("restrictive") && t.has("agreement")) ||
+      (t.has("preclude") || t.has("restrict")) && t.has("employment"),
+    choiceValue: "No",
+    textValue: "NA",
+  },
+  {
+    label: "worked as a client of the company's own engagement/consulting team",
+    test: (t) => t.has("engagement") && (t.has("team") || t.has("client")),
+    choiceValue: "No",
+    textValue: "NA",
+  },
+  {
+    label: "related to a partner/employee (nepotism disclosure)",
+    test: (t) => t.has("related") && (t.has("partner") || t.has("principal") || t.has("employee")),
+    choiceValue: "No",
+    textValue: "NA",
+  },
+  {
+    label: "third-party labor / independent contractor to the company",
+    test: (t) =>
+      (t.has("third") && t.has("party")) ||
+      (t.has("independent") && t.has("contractor")),
+    choiceValue: "No",
+    textValue: "NA",
+  },
+  {
+    label: "visa / work-authorization sponsorship needed",
+    test: (t) => t.has("sponsor") && (t.has("visa") || t.has("authorisation") || t.has("authorization")),
+    choiceValue: "No",
+    textValue: "No",
+  },
+  {
+    label: "recent career break",
+    test: (t) => t.has("career") && t.has("break"),
+    choiceValue: "No",
+    textValue: "No",
+  },
+  {
+    label: "legally authorized to work in the role's country",
+    test: (t) => (t.has("legally") || t.has("authorised") || t.has("authorized")) && t.has("work"),
+    choiceValue: "Yes",
+    textValue: "Yes",
   },
 ];
 
 function matchComplianceDefault(sig) {
-  if (!sig || !CHOICELIKE.has(sig.fieldType)) return null;
+  if (!sig || !(CHOICELIKE.has(sig.fieldType) || TEXTLIKE.has(sig.fieldType))) return null;
   const tokenSet = _tset(sig.tokens);
   if (!tokenSet.size) return null;
+  const isChoice = CHOICELIKE.has(sig.fieldType);
   for (const rule of COMPLIANCE_DEFAULTS) {
-    if (rule.test(tokenSet)) return { value: rule.value, label: rule.label };
+    if (rule.test(tokenSet)) {
+      return { value: isChoice ? rule.choiceValue : rule.textValue, label: rule.label };
+    }
   }
   return null;
 }
