@@ -32,8 +32,21 @@ const AFJ_PANEL = (function () {
     if (host && document.body.contains(host)) return;
     host = document.createElement("div");
     host.id = "afj-review-host";
+    // Real bug, not just a positioning preference: `all:initial` resets EVERY property it
+    // covers, including ones declared earlier in the same string — with it trailing here,
+    // it was silently wiping out position/top/right/transform/z-index every single time,
+    // so this host was never actually position:fixed at all. It rendered as a plain static
+    // element at the very end of document.body's content instead, which is exactly why it
+    // showed up "at the bottom of the page" rather than floating — that wasn't a bottom
+    // anchor working as designed, it was this never having worked. `all:initial` now comes
+    // FIRST so the real positioning after it isn't immediately undone.
+    //
+    // Vertically centered on the right edge rather than anchored to a corner — a corner
+    // anchor sits in the same strip as the ATS's own fixed footer buttons (Back/Submit on
+    // Workday especially), and on a long form the panel could grow tall enough to crowd
+    // them or get missed entirely below the fold.
     host.style.cssText =
-      "position:fixed;bottom:16px;right:16px;z-index:2147483647;all:initial;";
+      "all:initial;position:fixed;top:50%;right:16px;transform:translateY(-50%);z-index:2147483647;";
     shadow = host.attachShadow({ mode: "open" });
 
     shadow.innerHTML = `
