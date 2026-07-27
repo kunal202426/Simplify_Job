@@ -388,19 +388,29 @@ async function workDayAutofill(res) {
 
   const observer = new MutationObserver(async () => {
     const stage = afjWorkdayCurrentStage();
-    if (!stage || !remainingStages[stage] || stageBusy) return;
+    // Real bug found live: this used to bail out entirely (never reaching the generic pass
+    // below) whenever the current stage's name wasn't one of the four hardcoded keys above.
+    // Those four cover Workday's own built-in stages, but individual tenants add their own
+    // custom ones too — PwC's "Application Questions" stage, for instance — and every field
+    // on an unrecognized stage got literally zero processing attempts, not even a best-effort
+    // one. The mapped-field pass below is still skipped for an unknown stage (nothing to map),
+    // but the generic engine must always get a chance regardless of whether Workday's own
+    // stage name happens to be one we anticipated.
+    if (!stage || stageBusy) return;
 
     stageBusy = true;
     try {
       await sleep(2000);
-      for (const fieldKey of Object.keys(remainingStages[stage])) {
-        const profileKey = remainingStages[stage][fieldKey];
-        try {
-          await afjWorkdayProcessField(fieldKey, profileKey, res);
-        } catch (e) {
-          console.warn("AutofillJobs (workday): skipped a field after an error", fieldKey, e);
+      if (remainingStages[stage]) {
+        for (const fieldKey of Object.keys(remainingStages[stage])) {
+          const profileKey = remainingStages[stage][fieldKey];
+          try {
+            await afjWorkdayProcessField(fieldKey, profileKey, res);
+          } catch (e) {
+            console.warn("AutofillJobs (workday): skipped a field after an error", fieldKey, e);
+          }
+          delete remainingStages[stage][fieldKey];
         }
-        delete remainingStages[stage][fieldKey];
       }
       await afjWorkdayRunGenericPass(res);
     } finally {

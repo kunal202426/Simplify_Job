@@ -1,0 +1,93 @@
+<!doctype html>
+<html>
+<head><meta charset="utf-8" /><title>Workday unknown-stage regression</title>
+<style>body{font-family:sans-serif;max-width:640px;margin:20px auto}#results{background:#111;color:#0f0;padding:12px;white-space:pre-wrap;font-family:monospace;font-size:12px}</style>
+</head>
+<body>
+  <h1>Real bug found live: a custom per-tenant Workday stage got ZERO processing</h1>
+  <p>PwC's application flow has a stage literally named "Application Questions" — not one of
+  the four hardcoded stage names (My Information / My Experience / Voluntary Disclosures /
+  Self Identify) workday.js knows about. The observer used to bail out entirely whenever the
+  current stage name wasn't a key in that map, before it ever reached the generic engine
+  pass — so every field on any custom tenant-specific stage got literally no fill attempt at
+  all, not even a best-effort one. This fixture simulates exactly that: a progress bar
+  reporting an unrecognized stage name, with real recurring compliance questions on the page
+  that should now get picked up by the generic pass regardless.</p>
+
+  <div data-automation-id="progressBar">
+    <div data-automation-id="progressBarActiveStep">
+      <span>1</span><span>icon</span><span>Application Questions</span>
+    </div>
+  </div>
+
+  <div data-automation-id="applyFlowPage">
+    <fieldset>
+      <legend>Are you subject to a non-competition or other agreement, or aware of other circumstances, that would preclude or restrict your employment with PwC?</legend>
+      <textarea id="non-compete"></textarea>
+    </fieldset>
+
+    <fieldset>
+      <legend>Are you legally authorised to work in the country / territory in which this position is located?</legend>
+      <select id="legally-authorized">
+        <option value="">Select</option>
+        <option>Yes</option>
+        <option>No</option>
+      </select>
+    </fieldset>
+  </div>
+
+  <pre id="results">running…</pre>
+
+  <script>
+    (function () {
+      const _local = {}, _sync = {};
+      function resolve(s, k){ if(k==null) return {...s}; if(Array.isArray(k)){const o={};k.forEach(x=>{if(x in s)o[x]=s[x]});return o;} const o={}; if(k in s)o[k]=s[k]; return o; }
+      window.chrome = { runtime: { id: "test-extension-id" }, storage: {
+        local:{ get:(k,cb)=>cb(resolve(_local,k)), set:(o,cb)=>{Object.assign(_local,o);cb&&cb();} },
+        sync: { get:(k,cb)=>cb(resolve(_sync,k)),  set:(o,cb)=>{Object.assign(_sync,o);cb&&cb();} } } };
+      window.__store = { local: _local, sync: _sync };
+    })();
+  </script>
+  <script src="../../src/public/contentScripts/utils.js"></script>
+  <script src="../../src/public/contentScripts/signature.js"></script>
+  <script src="../../src/public/contentScripts/learningStore.js"></script>
+  <script src="../../src/public/contentScripts/formatConvert.js"></script>
+  <script src="../../src/public/contentScripts/matcher.js"></script>
+  <script src="../../src/public/contentScripts/embedding.js"></script>
+  <script src="../../src/public/contentScripts/reviewPanel.js"></script>
+  <script src="../../src/public/contentScripts/engine.js"></script>
+  <script src="../../src/public/contentScripts/workday.js"></script>
+  <script>
+    const log=[]; function out(m){log.push(m);document.getElementById("results").textContent=log.join("\n");}
+    const assert=(n,c)=>out((c?"PASS ":"FAIL ")+n);
+
+    (async function () {
+      assert("afjWorkdayCurrentStage reads the unrecognized stage name correctly",
+        afjWorkdayCurrentStage() === "Application Questions");
+
+      await workDayAutofill({});
+
+      // workDayAutofill's MutationObserver only fires on mutations AFTER it starts
+      // observing -- on a real Workday page that's a non-issue, since the SPA is
+      // constantly re-rendering, but this fixture's DOM is otherwise fully static, so
+      // nothing would ever trigger the observer's callback at all without this nudge.
+      document.body.appendChild(document.createElement("span"));
+
+      // Give the observer's debounced pass room to actually run.
+      let waited = 0;
+      while (waited < 4000) {
+        await new Promise((r) => setTimeout(r, 300));
+        waited += 300;
+        if (document.getElementById("non-compete").value) break;
+      }
+
+      assert("non-compete textarea got filled on an UNRECOGNIZED stage (the real bug)",
+        document.getElementById("non-compete").value === "NA");
+      assert("legally-authorized select also got filled on the same unrecognized stage",
+        document.getElementById("legally-authorized").value === "Yes");
+
+      out("DONE");
+    })().catch((e) => out("ERROR " + (e && e.stack || e)));
+  </script>
+</body>
+</html>
